@@ -1,0 +1,13 @@
+{
+  "name": "totem-pdv-central",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de Totem Autoatendimento, PDV Central e Motor Fiscal NFC-e",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev:central": "pnpm --filter @totem-pdv/central-web dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
