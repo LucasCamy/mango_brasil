@@ -40,6 +40,12 @@ importers:
         specifier: ^5.4.5
         version: 5.9.3
 
+  apps/cockpit:
+    dependencies:
+      express:
+        specifier: ^4.22.3
+        version: 4.22.3
+
   packages/fiscal-engine:
     dependencies:
       '@totem-pdv/shared-types':
