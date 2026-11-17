@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🪐 Cockpit da Mesa Redonda | Totem PDV Central</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              dark: '#090d16',
+              card: '#0f172a',
+              border: '#1e293b',
+              accent: '#3b82f6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    code, pre, .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.03); }
+    }
+    .animate-pulse-slow {
+      animation: pulse-slow 3s infinite ease-in-out;
+    }
+    .flow-line {
+      stroke-dasharray: 6;
+      animation: flowAnimation 25s linear infinite;
+    }
+    @keyframes flowAnimation {
+      from { stroke-dashoffset: 500; }
+      to { stroke-dashoffset: 0; }
+    }
+  </style>
+</head>
+<body class="bg-[#090d16] text-slate-100 min-h-screen antialiased selection:bg-blue-600 selection:text-white">
+  <!-- Top Navigation Bar -->
+  <header class="sticky top-0 z-50 bg-[#090d16]/90 backdrop-blur-md border-b border-slate-800/80 px-6 py-3">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20 text-lg">
+          🪐
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base font-bold tracking-tight text-white">Cockpit da Mesa Redonda</h1>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+              Tempo Real Ativo
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">Orquestração Multi-Agente &bull; <span class="font-mono text-slate-300">F:\totem-pdv-central</span></p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4 text-xs">
+        <div class="hidden md:flex items-center gap-2 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-lg text-slate-300">
+          <span class="text-slate-500">Serviço Central:</span>
+          <a href="http://localhost:4000" target="_blank" class="text-blue-400 hover:underline font-mono flex items-center gap-1">
+            :4000/api
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          </a>
+        </div>
+        <button onclick="fetchState()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors flex items-center gap-1.5 border border-slate-700">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Sincronizar
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+    <!-- SECTION 1: MAPA MENTAL VIVO & TOPOLOGIA DOS AGENTES -->
+    <section class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl relative overflow-hidden">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800/60">
+        <div>
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>🗺️</span> Mapa Mental da Orquestração
+          </h2>
+          <p class="text-xs text-slate-400">Clique em qualquer agente ou módulo para inspecionar o raciocínio em tempo real</p>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <span class="flex items-center gap-1.5 text-slate-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Conectado
+          </span>
+          <span class="flex items-center gap-1.5 text-slate-400">
+            <span class="w-2 h-2 rounded-full bg-blue-400"></span> Em Raciocínio
+          </span>
+        </div>
+      </div>
+
+      <!-- SVG Dynamic Visual Graph -->
+      <div class="relative w-full overflow-x-auto">
+        <svg id="mindmap-svg" viewBox="0 0 1000 420" class="w-full min-w-[800px] h-auto select-none">
+          <defs>
+            <!-- Glow Filters -->
+            <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="6" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <filter id="glow-purple" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="6" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <linearGradient id="grad-center" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#3b82f6" />
+              <stop offset="100%" stop-color="#1d4ed8" />
+            </linearGradient>
+          </defs>
+
+          <!-- Connection Lines from Antigravity to Agents -->
+          <!-- To Claude -->
+          <path d="M 500,210 C 400,210 320,110 220,110" stroke="#a855f7" stroke-width="2.5" fill="none" class="flow-line" opacity="0.75" />
+          <!-- To Codex -->
+          <path d="M 500,210 C 600,210 680,110 780,110" stroke="#10b981" stroke-width="2.5" fill="none" class="flow-line" opacity="0.75" />
+          <!-- To Fiscal -->
+          <path d="M 500,210 C 400,210 320,310 220,310" stroke="#f59e0b" stroke-width="2.5" fill="none" class="flow-line" opacity="0.75" />
+          <!-- To TEF -->
+          <path d="M 500,210 C 600,210 680,310 780,310" stroke="#06b6d4" stroke-width="2.5" fill="none" class="flow-line" opacity="0.75" />
+
+          <!-- Connection Lines to Repositories / Modules -->
+          <!-- Claude -> apps/central-web -->
+          <path d="M 220,110 L 80,110" stroke="#475569" stroke-width="1.5" stroke-dasharray="4" fill="none" />
+          <!-- Codex -> apps/totem_app -->
+          <path d="M 780,110 L 920,110" stroke="#475569" stroke-width="1.5" stroke-dasharray="4" fill="none" />
+          <!-- Fiscal -> packages/fiscal-engine -->
+          <path d="M 220,310 L 80,310" stroke="#475569" stroke-width="1.5" stroke-dasharray="4" fill="none" />
+          <!-- TEF -> packages/tef-client -->
+          <path d="M 780,310 L 920,310" stroke="#475569" stroke-width="1.5" stroke-dasharray="4" fill="none" />
+
+          <!-- Central Node: Antigravity -->
+          <g onclick="inspectAgent('antigravity')" class="cursor-pointer group">
+            <circle cx="500" cy="210" r="54" fill="#1e3a8a" opacity="0.4" class="animate-pulse-slow" />
+            <circle cx="500" cy="210" r="46" fill="url(#grad-center)" stroke="#60a5fa" stroke-width="3" filter="url(#glow-blue)" />
+            <text x="500" y="202" font-size="24" text-anchor="middle" dominant-baseline="central">🪐</text>
+            <text x="500" y="226" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle">Antigravity</text>
+            <text x="500" y="238" font-size="8" font-weight="600" fill="#bfdbfe" text-anchor="middle">MAESTRO</text>
+          </g>
+
+          <!-- Satellite Node 1: Claude Code (Backend) -->
+          <g onclick="inspectAgent('claude')" class="cursor-pointer group">
+            <circle cx="220" cy="110" r="38" fill="#1e1b4b" stroke="#a855f7" stroke-width="2.5" filter="url(#glow-purple)" class="transition-transform group-hover:scale-105" />
+            <text x="220" y="103" font-size="18" text-anchor="middle" dominant-baseline="central">🟣</text>
+            <text x="220" y="122" font-size="10" font-weight="700" fill="#e9d5ff" text-anchor="middle">Claude Code</text>
+            <text x="220" y="132" font-size="8" fill="#c084fc" text-anchor="middle">Backend / API</text>
+          </g>
+
+          <!-- Satellite Node 2: Codex (Kiosk / Flutter) -->
+          <g onclick="inspectAgent('codex')" class="cursor-pointer group">
+            <circle cx="780" cy="110" r="38" fill="#064e3b" stroke="#10b981" stroke-width="2.5" class="transition-transform group-hover:scale-105" />
+            <text x="780" y="103" font-size="18" text-anchor="middle" dominant-baseline="central">🟢</text>
+            <text x="780" y="122" font-size="10" font-weight="700" fill="#d1fae5" text-anchor="middle">Codex</text>
+            <text x="780" y="132" font-size="8" fill="#34d399" text-anchor="middle">Totem Kiosk</text>
+          </g>
+
+          <!-- Satellite Node 3: Motor Fiscal -->
+          <g onclick="inspectAgent('fiscal')" class="cursor-pointer group">
+            <circle cx="220" cy="310" r="38" fill="#451a03" stroke="#f59e0b" stroke-width="2.5" class="transition-transform group-hover:scale-105" />
+            <text x="220" y="303" font-size="18" text-anchor="middle" dominant-baseline="central">📜</text>
+            <text x="220" y="322" font-size="10" font-weight="700" fill="#fef3c7" text-anchor="middle">Motor Fiscal</text>
+            <text x="220" y="332" font-size="8" fill="#fbbf24" text-anchor="middle">NFC-e / SEFAZ</text>
+          </g>
+
+          <!-- Satellite Node 4: TEF Pinpad -->
+          <g onclick="inspectAgent('tef')" class="cursor-pointer group">
+            <circle cx="780" cy="310" r="38" fill="#164e63" stroke="#06b6d4" stroke-width="2.5" class="transition-transform group-hover:scale-105" />
+            <text x="780" y="303" font-size="18" text-anchor="middle" dominant-baseline="central">💳</text>
+            <text x="780" y="322" font-size="10" font-weight="700" fill="#cffafe" text-anchor="middle">Subagente TEF</text>
+            <text x="780" y="332" font-size="8" fill="#22d3ee" text-anchor="middle">Pinpad 2PC</text>
+          </g>
+
+          <!-- Physical Monorepo Modules Boxes -->
+          <!-- Central Web Module -->
+          <g onclick="inspectModule('central-web')" class="cursor-pointer">
+            <rect x="10" y="85" width="130" height="50" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+            <text x="75" y="105" font-size="10" font-weight="700" fill="#f8fafc" text-anchor="middle">apps/central-web</text>
+            <text x="75" y="122" font-size="8" font-family="monospace" fill="#38bdf8" text-anchor="middle">:4000 (Node.js)</text>
+          </g>
+
+          <!-- Totem App Module -->
+          <g onclick="inspectModule('totem_app')" class="cursor-pointer">
+            <rect x="860" y="85" width="130" height="50" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+            <text x="925" y="105" font-size="10" font-weight="700" fill="#f8fafc" text-anchor="middle">apps/totem_app</text>
+            <text x="925" y="122" font-size="8" font-family="monospace" fill="#34d399" text-anchor="middle">Flutter 3.x Kiosk</text>
+          </g>
+
+          <!-- Fiscal Engine Module -->
+          <g onclick="inspectModule('fiscal-engine')" class="cursor-pointer">
+            <rect x="10" y="285" width="130" height="50" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+            <text x="75" y="305" font-size="10" font-weight="700" fill="#f8fafc" text-anchor="middle">packages/fiscal</text>
+            <text x="75" y="322" font-size="8" font-family="monospace" fill="#fbbf24" text-anchor="middle">MOC 7.0 / QR-v2</text>
+          </g>
+
+          <!-- TEF Client Module -->
+          <g onclick="inspectModule('tef-client')" class="cursor-pointer">
+            <rect x="860" y="285" width="130" height="50" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+            <text x="925" y="305" font-size="10" font-weight="700" fill="#f8fafc" text-anchor="middle">packages/tef</text>
+            <text x="925" y="322" font-size="8" font-family="monospace" fill="#22d3ee" text-anchor="middle">2-Phase Commit</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Agent Deep Dive Inspector Box -->
+      <div id="inspector-card" class="mt-4 p-4 rounded-xl bg-slate-950/70 border border-slate-800 text-xs space-y-2">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span id="inspect-avatar" class="text-lg">🪐</span>
+            <div>
+              <span id="inspect-name" class="font-bold text-white text-sm">Antigravity (Orquestrador & Maestro)</span>
+              <span id="inspect-model" class="text-[11px] text-slate-400 block font-mono">Gemini Ecosystem &bull; Líder da Mesa</span>
+            </div>
+          </div>
+          <span id="inspect-status" class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/30">
+            ONLINE / PRONTO
+          </span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          <div>
+            <span class="text-slate-400 font-semibold block mb-1">Último Raciocínio / Pensamento:</span>
+            <p id="inspect-thought" class="text-slate-200 leading-relaxed italic bg-slate-900/80 p-2.5 rounded-lg border border-slate-800/80">
+              "Centralizando todas as demandas do usuário em um único chat. Analisando o MVP de Totem + PDV: delegando backend para Claude, frontend Kiosk para Codex e garantindo que o motor fiscal e TEF atendam às exigências tributárias brasileiras sem atrito."
+            </p>
+          </div>
+          <div>
+            <span class="text-slate-400 font-semibold block mb-1">Última Ação Executada:</span>
+            <div id="inspect-action" class="text-slate-300 font-mono text-[11px] bg-slate-900/80 p-2.5 rounded-lg border border-slate-800/80">
+              Coordenando implantação do Cockpit Visual
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: STREAM DE PENSAMENTOS & PIPELINE DE TAREFAS -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Thought Stream (Raciocínio dos Agentes) -->
+      <section class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex flex-col h-[520px]">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3">
+          <div class="flex items-center gap-2">
+            <span>💭</span>
+            <h2 class="text-sm font-bold text-white">Stream de Raciocínio & Pensamentos</h2>
+          </div>
+          <span class="text-[10px] font-mono bg-slate-800 px-2 py-0.5 rounded text-slate-400" id="thoughts-count">5 Pensamentos</span>
+        </div>
+
+        <div id="thoughts-list" class="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+          <!-- Dynamic Thought items rendered via JS -->
+        </div>
+      </section>
+
+      <!-- Task Pipeline (Kanban / Tarefas) -->
+      <section class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl flex flex-col h-[520px]">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800/80 mb-3">
+          <div class="flex items-center gap-2">
+            <span>📋</span>
+            <h2 class="text-sm font-bold text-white">Pipeline de Tarefas da Mesa</h2>
+          </div>
+          <div class="flex items-center gap-1.5 text-[10px]">
+            <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold">5 Concluídas</span>
+            <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 font-semibold">1 Em Andamento</span>
+          </div>
+        </div>
+
+        <div id="tasks-list" class="flex-1 overflow-y-auto space-y-2.5 pr-1 text-xs">
+          <!-- Dynamic Task items rendered via JS -->
+        </div>
+      </section>
+    </div>
+
+    <!-- SECTION 3: SERVIÇOS DO SISTEMA & LOG DE COMMITS -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Health Check dos Serviços -->
+      <section class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl space-y-3">
+        <h2 class="text-sm font-bold text-white flex items-center gap-2 pb-2 border-b border-slate-800/80">
+          <span>⚡</span> Saúde dos Módulos Locais
+        </h2>
+        <div id="services-list" class="space-y-2.5 text-xs">
+          <!-- Rendered via JS -->
+        </div>
+      </section>
+
+      <!-- Git Commits Recentes -->
+      <section class="lg:col-span-2 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-sm shadow-xl space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800/80">
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>📦</span> Histórico de Commits no Monorepo
+          </h2>
+          <span class="text-[10px] font-mono text-slate-400">branch: master</span>
+        </div>
+        <div id="git-log-list" class="space-y-2 text-xs font-mono">
+          <!-- Rendered via JS -->
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
