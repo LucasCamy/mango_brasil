@@ -1,12 +1,13 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '../..');
+const defaultRootDir = path.resolve(__dirname, '../..');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,19 +16,83 @@ const PORT = process.env.PORT || 5050;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory state for the Round Table Cockpit
+// Registered Projects Catalog
+const projectsRegistry = [
+  {
+    id: 'totem-pdv-central',
+    name: 'Totem PDV Central',
+    icon: '🏪',
+    path: 'F:\\totem-pdv-central',
+    description: 'Totem de Autoatendimento (Flutter), PDV Central (Node/Express), Motor Fiscal NFC-e e Driver TEF.',
+    stack: ['Flutter', 'Node.js', 'Express', 'TypeScript', 'SEFAZ NFC-e', 'TEF/Pinpad'],
+    status: 'active',
+    agents: ['antigravity', 'claude', 'codex', 'fiscal', 'tef'],
+    modules: [
+      { id: 'central-web', name: 'Central Web & KDS API', path: 'apps/central-web', port: 4000, status: 'online' },
+      { id: 'totem_app', name: 'Totem Kiosk Flutter', path: 'apps/totem_app', status: 'ready' },
+      { id: 'fiscal-engine', name: 'Motor Fiscal NFC-e', path: 'packages/fiscal-engine', status: 'ready' },
+      { id: 'tef-client', name: 'Driver TEF Pinpad', path: 'packages/tef-client', status: 'ready' },
+      { id: 'cockpit', name: 'Cockpit da Mesa Redonda', path: 'apps/cockpit', port: 5050, status: 'online' }
+    ]
+  },
+  {
+    id: 'agent-project-kit',
+    name: 'Agent Project Kit',
+    icon: '🧰',
+    path: 'F:\\agent-project-kit',
+    description: 'Kit de governança de agentes, comandos universais (/frontend, /backend, /database) e sincronização de skills.',
+    stack: ['PowerShell', 'Markdown', 'Antigravity Skills', 'Claude Commands'],
+    status: 'active',
+    agents: ['antigravity', 'claude'],
+    modules: [
+      { id: 'commands', name: 'Claude & Codex Commands', path: 'commands', status: 'ready' },
+      { id: 'skills', name: 'Sincronizador de Skills', path: 'skills', status: 'ready' },
+      { id: 'scripts', name: 'Scripts de Automação', path: 'scripts', status: 'ready' }
+    ]
+  },
+  {
+    id: 'FinanceHub',
+    name: 'FinanceHub',
+    icon: '💰',
+    path: 'F:\\FinanceHub',
+    description: 'Sistema de gestão financeira, contas a pagar/receber e conciliação bancária.',
+    stack: ['TypeScript', 'Node.js', 'PostgreSQL', 'REST API'],
+    status: 'active',
+    agents: ['antigravity', 'claude'],
+    modules: [
+      { id: 'finance-api', name: 'API de Conciliação', path: 'src', status: 'ready' }
+    ]
+  },
+  {
+    id: 'Cloudlane',
+    name: 'Cloudlane Homelab',
+    icon: '☁️',
+    path: 'F:\\Cloudlane',
+    description: 'Infraestrutura de homelab, automação com Proxmox VE, cluster K3s e stacks de mídia.',
+    stack: ['Kubernetes / K3s', 'Proxmox VE', 'Ansible', 'Docker', 'Linux'],
+    status: 'active',
+    agents: ['antigravity'],
+    modules: [
+      { id: 'manifests', name: 'Manifestos K3s', path: 'k3s', status: 'ready' },
+      { id: 'runbooks', name: 'Runbooks Operacionais', path: 'docs', status: 'ready' }
+    ]
+  }
+];
+
+// In-memory state
 const state = {
+  activeProjectId: 'all', // 'all' or project id
+  projects: projectsRegistry,
   agents: {
     antigravity: {
       id: 'antigravity',
       name: 'Antigravity',
       role: 'Orquestrador Geral & Maestro',
       model: 'Gemini Ecosystem',
-      status: 'active', // 'active' | 'thinking' | 'idle'
+      status: 'active',
       avatar: '🪐',
       color: '#3b82f6',
-      badge: 'Líder da Mesa',
-      lastAction: 'Coordenando implantação do Cockpit Visual'
+      badge: 'Líder da Mesa'
     },
     claude: {
       id: 'claude',
@@ -37,8 +102,7 @@ const state = {
       status: 'active',
       avatar: '🟣',
       color: '#a855f7',
-      badge: 'Backend & Caixa',
-      lastAction: 'API Central Web rodando em :4000'
+      badge: 'Backend & Arquitetura'
     },
     codex: {
       id: 'codex',
@@ -48,8 +112,7 @@ const state = {
       status: 'active',
       avatar: '🟢',
       color: '#10b981',
-      badge: 'Totem Kiosk',
-      lastAction: 'TotemKioskApp com análise 0 lint'
+      badge: 'Totem & Mobile'
     },
     fiscal: {
       id: 'fiscal',
@@ -59,8 +122,7 @@ const state = {
       status: 'active',
       avatar: '📜',
       color: '#f59e0b',
-      badge: 'NFC-e 4.00',
-      lastAction: 'Geração de chave 44 dígitos e QR-Code v2'
+      badge: 'Fiscal & Compliance'
     },
     tef: {
       id: 'tef',
@@ -70,153 +132,189 @@ const state = {
       status: 'active',
       avatar: '💳',
       color: '#06b6d4',
-      badge: 'TEF / Pinpad',
-      lastAction: 'Two-Phase Commit com estorno de pendências'
+      badge: 'Pagamentos & Pinpad'
     }
   },
-  modules: [
-    {
-      id: 'central-web',
-      name: 'Central Web & KDS API',
-      path: 'apps/central-web',
-      port: 4000,
-      url: 'http://localhost:4000',
-      status: 'online',
-      description: 'API Node/Express de turnos de caixa, fila KDS para produção e dashboard administrativo.'
-    },
-    {
-      id: 'totem_app',
-      name: 'Totem Kiosk Touch App',
-      path: 'apps/totem_app',
-      status: 'ready',
-      description: 'Aplicativo Flutter para autoatendimento com cardápio dinâmico, personalização e timer de 60s.'
-    },
-    {
-      id: 'fiscal-engine',
-      name: 'Motor Fiscal NFC-e',
-      path: 'packages/fiscal-engine',
-      status: 'ready',
-      description: 'Cálculo de Módulo 11, emissão SEFAZ Mod 65, QR Code v2 com hash CSC e contingência offline.'
-    },
-    {
-      id: 'tef-client',
-      name: 'Driver TEF / Pinpad',
-      path: 'packages/tef-client',
-      status: 'ready',
-      description: 'Máquina de estados de pagamentos TEF (Crédito, Débito, Pix) com Two-Phase Commit e estorno.'
-    },
-    {
-      id: 'shared-types',
-      name: 'Tipos Compartilhados',
-      path: 'packages/shared-types',
-      status: 'ready',
-      description: 'Contratos e schemas TypeScript unificados para pedidos, produtos, turnos e notas fiscais.'
-    }
-  ],
   thoughts: [
     {
-      id: 'th-1',
+      id: 'th-101',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       agentId: 'antigravity',
-      timestamp: new Date().toISOString(),
-      thought: 'Inicializando o Cockpit Visual da Mesa Redonda na porta 5050. Objetivo: centralizar os pensamentos e o mapa mental do monorepo F:\\totem-pdv-central para o usuário acompanhar tudo em tempo real.',
-      tag: 'Orquestração'
+      category: 'Orquestração',
+      thought: 'Expandindo o Cockpit da Mesa Redonda para suportar múltiplos projetos em F:\\. Criando navegação cruzada entre Totem PDV, Agent Project Kit, FinanceHub e Cloudlane com links diretos aos arquivos.',
+      fileLink: 'F:\\totem-pdv-central\\apps\\cockpit\\server.js',
+      commitHash: '211d4e8',
+      timestamp: new Date().toISOString()
     },
     {
-      id: 'th-2',
+      id: 'th-102',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       agentId: 'claude',
-      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-      thought: 'A integridade do caixa no sistema central está garantida: aberturas de turno registram suprimento inicial e a conferência de fechamento calcula eventuais quebras por forma de pagamento (Dinheiro, Cartão, Pix).',
-      tag: 'Backend'
+      category: 'Backend',
+      thought: 'Regras de conciliação de caixa e turno blindadas. Cada sangria precisa ter motivo auditável e cada fechamento deve permitir conferência cega (blind cash count) para evitar viés do operador.',
+      fileLink: 'F:\\totem-pdv-central\\apps\\central-web\\src\\server.ts',
+      commitHash: 'b4f12a6',
+      timestamp: new Date(Date.now() - 1000 * 60 * 8).toISOString()
     },
     {
-      id: 'th-3',
+      id: 'th-103',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       agentId: 'codex',
-      timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-      thought: 'Totem Kiosk estruturado em Flutter com cards táteis e fotos atrativas. Implementei timer de 60s de inatividade para limpar a sessão caso o cliente abandone o totem na tela de customização.',
-      tag: 'Frontend'
+      category: 'Frontend',
+      thought: 'Para suportar contingência de internet no totem de autoatendimento, estruturando camada local com SQLite/Hive para persistir o catálogo de lanches e bufferizar pedidos offline.',
+      fileLink: 'F:\\totem-pdv-central\\apps\\totem_app\\lib\\main.dart',
+      commitHash: 'b4f12a6',
+      timestamp: new Date(Date.now() - 1000 * 60 * 18).toISOString()
     },
     {
-      id: 'th-4',
+      id: 'th-104',
+      projectId: 'agent-project-kit',
+      projectName: 'Agent Project Kit',
+      agentId: 'antigravity',
+      category: 'Governança',
+      thought: 'Comandos instalados em ~/.claude/commands (/frontend, /backend, /database, /review) vinculados com sucesso. Skills sincronizadas em ~/.gemini/config/skills para reuso transversal entre projetos.',
+      fileLink: 'F:\\agent-project-kit\\scripts\\install-commands.ps1',
+      commitHash: 'init',
+      timestamp: new Date(Date.now() - 1000 * 60 * 35).toISOString()
+    },
+    {
+      id: 'th-105',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       agentId: 'fiscal',
-      timestamp: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-      thought: 'Emissão de NFC-e calibrada para o MOC 7.0. Se houver oscilação de rede na loja, o sistema comuta automaticamente para contingência offline (tpEmis=9), gerando QR Code v2 e gravando XMLs localmente.',
-      tag: 'Fiscal'
+      category: 'Fiscal',
+      thought: 'O cálculo do dígito verificador da Chave de 44 dígitos mod 11 e o QR Code v2 com hash SHA-1 do CSC garantem que o cupom impresso pelo totem seja validado imediatamente pelo smartphone do cliente.',
+      fileLink: 'F:\\totem-pdv-central\\packages\\fiscal-engine\\src\\nfe-service.ts',
+      commitHash: 'b4f12a6',
+      timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString()
     },
     {
-      id: 'th-5',
-      agentId: 'tef',
-      timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-      thought: 'Fluxo Two-Phase Commit do Pinpad validado: nunca emitir NFC-e nem despachar pedido para o KDS antes da confirmação criptográfica (ACK) da adquirente.',
-      tag: 'TEF'
+      id: 'th-106',
+      projectId: 'FinanceHub',
+      projectName: 'FinanceHub',
+      agentId: 'claude',
+      category: 'Arquitetura',
+      thought: 'Planejando integração entre os relatórios Z de fechamento de caixa do Totem PDV e o razão contábil do FinanceHub via webhook agendado.',
+      fileLink: 'F:\\FinanceHub',
+      timestamp: new Date(Date.now() - 1000 * 60 * 70).toISOString()
     }
   ],
   tasks: [
     {
       id: 'task-1',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       title: 'Estruturação da Arquitetura Monorepo e Shared Types',
       assignedTo: 'antigravity',
       module: 'packages/shared-types',
       status: 'done',
-      priority: 'high'
+      priority: 'high',
+      fileLink: 'F:\\totem-pdv-central\\packages\\shared-types\\src\\index.ts'
     },
     {
       id: 'task-2',
-      title: 'Implementação do Motor Fiscal NFC-e (SEFAZ Mod 65 e QR-Code v2)',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
+      title: 'Motor Fiscal NFC-e (SEFAZ Mod 65, Módulo 11 e QR-Code v2)',
       assignedTo: 'fiscal',
       module: 'packages/fiscal-engine',
       status: 'done',
-      priority: 'high'
+      priority: 'high',
+      fileLink: 'F:\\totem-pdv-central\\packages\\fiscal-engine\\src\\nfe-service.ts'
     },
     {
       id: 'task-3',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       title: 'Driver TEF Pinpad com Two-Phase Commit e Tratamento de Pendências',
       assignedTo: 'tef',
       module: 'packages/tef-client',
       status: 'done',
-      priority: 'high'
+      priority: 'high',
+      fileLink: 'F:\\totem-pdv-central\\packages\\tef-client\\src\\tef-driver.ts'
     },
     {
       id: 'task-4',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       title: 'Servidor Central Web com Gestão de Turnos de Caixa e Fila KDS',
       assignedTo: 'claude',
       module: 'apps/central-web',
       status: 'done',
-      priority: 'high'
+      priority: 'high',
+      fileLink: 'F:\\totem-pdv-central\\apps\\central-web\\src\\server.ts'
     },
     {
       id: 'task-5',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       title: 'App Flutter Totem Kiosk com Cardápio, Modais e Inatividade 60s',
       assignedTo: 'codex',
       module: 'apps/totem_app',
       status: 'done',
-      priority: 'high'
+      priority: 'high',
+      fileLink: 'F:\\totem-pdv-central\\apps\\totem_app\\lib\\main.dart'
     },
     {
       id: 'task-6',
-      title: 'Cockpit Visual Interativo em Tempo Real para a Mesa Redonda',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
+      title: 'Cockpit Multi-Projeto com Links Reais aos Arquivos e Suporte Global',
       assignedTo: 'antigravity',
       module: 'apps/cockpit',
       status: 'in_progress',
-      priority: 'high'
+      priority: 'high',
+      fileLink: 'F:\\totem-pdv-central\\apps\\cockpit\\server.js'
     },
     {
       id: 'task-7',
+      projectId: 'agent-project-kit',
+      projectName: 'Agent Project Kit',
+      title: 'Configuração e Instalação dos Comandos Universais (/frontend, /backend, /kit)',
+      assignedTo: 'antigravity',
+      module: 'commands',
+      status: 'done',
+      priority: 'medium',
+      fileLink: 'F:\\agent-project-kit\\scripts\\install-commands.ps1'
+    },
+    {
+      id: 'task-8',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       title: 'Persistência Offline em SQLite no Totem com Sincronização em Background',
       assignedTo: 'codex',
       module: 'apps/totem_app',
       status: 'backlog',
-      priority: 'medium'
+      priority: 'high',
+      fileLink: 'F:\\totem-pdv-central\\apps\\totem_app'
     },
     {
-      id: 'task-8',
+      id: 'task-9',
+      projectId: 'totem-pdv-central',
+      projectName: 'Totem PDV Central',
       title: 'Fluxo de Sangria, Suprimento e Fechamento Cego de Caixa no PDV',
       assignedTo: 'claude',
       module: 'apps/central-web',
       status: 'backlog',
-      priority: 'medium'
+      priority: 'medium',
+      fileLink: 'F:\\totem-pdv-central\\apps\\central-web'
+    },
+    {
+      id: 'task-10',
+      projectId: 'FinanceHub',
+      projectName: 'FinanceHub',
+      title: 'Webhook para Conciliação Financeira com Fechamento de Caixa',
+      assignedTo: 'claude',
+      module: 'finance-api',
+      status: 'backlog',
+      priority: 'low',
+      fileLink: 'F:\\FinanceHub'
     }
   ],
-  gitLog: []
+  gitLogsByProject: {}
 };
 
 // SSE Subscribers
@@ -233,32 +331,47 @@ function broadcastSSE(eventType, data) {
   }
 }
 
-// Function to fetch git log
-function updateGitLog() {
+// Fetch git log for a given project directory
+function fetchGitLog(projectPath) {
   return new Promise((resolve) => {
-    exec('git log -n 6 --pretty=format:"%h|%an|%s|%cr"', { cwd: rootDir }, (err, stdout) => {
+    if (!fs.existsSync(projectPath)) return resolve([]);
+    exec('git log -n 5 --pretty=format:"%h|%an|%s|%cr"', { cwd: projectPath }, (err, stdout) => {
       if (!err && stdout) {
-        state.gitLog = stdout.split('\n').filter(Boolean).map(line => {
+        const commits = stdout.split('\n').filter(Boolean).map(line => {
           const [hash, author, message, time] = line.split('|');
           return { hash, author, message, time };
         });
+        resolve(commits);
+      } else {
+        resolve([]);
       }
-      resolve(state.gitLog);
     });
   });
+}
+
+// Update all project git logs
+async function updateAllGitLogs() {
+  for (const proj of state.projects) {
+    const commits = await fetchGitLog(proj.path);
+    state.gitLogsByProject[proj.id] = commits;
+  }
 }
 
 // Check central API status
 async function checkCentralApiStatus() {
   try {
     const res = await fetch('http://localhost:4000/api/products');
-    if (res.ok) {
-      const central = state.modules.find(m => m.id === 'central-web');
-      if (central) central.status = 'online';
+    const totemProj = state.projects.find(p => p.id === 'totem-pdv-central');
+    if (totemProj) {
+      const centralMod = totemProj.modules.find(m => m.id === 'central-web');
+      if (centralMod) centralMod.status = res.ok ? 'online' : 'offline';
     }
   } catch (e) {
-    const central = state.modules.find(m => m.id === 'central-web');
-    if (central) central.status = 'offline';
+    const totemProj = state.projects.find(p => p.id === 'totem-pdv-central');
+    if (totemProj) {
+      const centralMod = totemProj.modules.find(m => m.id === 'central-web');
+      if (centralMod) centralMod.status = 'offline';
+    }
   }
 }
 
@@ -281,33 +394,137 @@ app.get('/api/events', (req, res) => {
 
 // Full state endpoint
 app.get('/api/state', async (req, res) => {
-  await updateGitLog();
+  await updateAllGitLogs();
   await checkCentralApiStatus();
   res.json(state);
 });
 
-// Post a thought
+// Switch active project
+app.post('/api/projects/select', (req, res) => {
+  const { projectId } = req.body;
+  if (projectId) {
+    state.activeProjectId = projectId;
+    broadcastSSE('state', state);
+    return res.json({ success: true, activeProjectId: projectId });
+  }
+  res.status(400).json({ error: 'projectId é obrigatório' });
+});
+
+// Discover Git repositories in F:\
+app.get('/api/discover-projects', (req, res) => {
+  try {
+    const baseDir = 'F:\\';
+    const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+    const discovered = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const fullPath = path.join(baseDir, entry.name);
+        const hasGit = fs.existsSync(path.join(fullPath, '.git'));
+        const hasPackageJson = fs.existsSync(path.join(fullPath, 'package.json'));
+        const alreadyRegistered = state.projects.some(p => p.path.toLowerCase() === fullPath.toLowerCase());
+
+        if (hasGit || hasPackageJson) {
+          discovered.push({
+            name: entry.name,
+            path: fullPath,
+            hasGit,
+            hasPackageJson,
+            registered: alreadyRegistered
+          });
+        }
+      }
+    }
+
+    res.json(discovered);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Register a new project
+app.post('/api/projects/register', async (req, res) => {
+  const { name, path: projectPath, description, icon } = req.body;
+  if (!name || !projectPath) {
+    return res.status(400).json({ error: 'name e path são obrigatórios' });
+  }
+
+  const id = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  const existing = state.projects.find(p => p.id === id || p.path.toLowerCase() === projectPath.toLowerCase());
+  
+  if (existing) {
+    return res.status(400).json({ error: 'Projeto já registrado' });
+  }
+
+  const newProj = {
+    id,
+    name,
+    icon: icon || '📁',
+    path: projectPath,
+    description: description || `Projeto em ${projectPath}`,
+    stack: ['Git'],
+    status: 'active',
+    agents: ['antigravity'],
+    modules: [{ id: 'root', name: name, path: '.', status: 'ready' }]
+  };
+
+  state.projects.push(newProj);
+  state.activeProjectId = id;
+
+  const commits = await fetchGitLog(projectPath);
+  state.gitLogsByProject[id] = commits;
+
+  broadcastSSE('project_added', newProj);
+  broadcastSSE('state', state);
+
+  res.json({ success: true, project: newProj });
+});
+
+// Open file or directory in VS Code
+app.post('/api/open-editor', (req, res) => {
+  const { filePath } = req.body;
+  if (!filePath) return res.status(400).json({ error: 'filePath obrigatório' });
+
+  exec(`code "${filePath}"`, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// Open path in Windows Explorer
+app.post('/api/open-explorer', (req, res) => {
+  const { path: dirPath } = req.body;
+  if (!dirPath) return res.status(400).json({ error: 'path obrigatório' });
+
+  exec(`explorer.exe "${dirPath}"`, (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// Post a thought with fileLink and project
 app.post('/api/thoughts', (req, res) => {
-  const { agentId, thought, tag } = req.body;
+  const { projectId, agentId, thought, category, fileLink, commitHash } = req.body;
   if (!agentId || !thought) {
     return res.status(400).json({ error: 'agentId e thought são obrigatórios' });
   }
 
+  const proj = state.projects.find(p => p.id === projectId) || state.projects[0];
+
   const newThought = {
     id: 'th-' + Date.now(),
+    projectId: proj.id,
+    projectName: proj.name,
     agentId,
     thought,
-    tag: tag || 'Raciocínio',
+    category: category || 'Raciocínio',
+    fileLink: fileLink || proj.path,
+    commitHash: commitHash || null,
     timestamp: new Date().toISOString()
   };
 
   state.thoughts.unshift(newThought);
-  if (state.thoughts.length > 50) state.thoughts.pop();
-
-  if (state.agents[agentId]) {
-    state.agents[agentId].lastAction = thought.slice(0, 60) + '...';
-    state.agents[agentId].status = 'active';
-  }
+  if (state.thoughts.length > 80) state.thoughts.pop();
 
   broadcastSSE('thought', newThought);
   broadcastSSE('state', state);
@@ -315,66 +532,14 @@ app.post('/api/thoughts', (req, res) => {
   res.json({ success: true, thought: newThought });
 });
 
-// Post/Update a task
-app.post('/api/tasks', (req, res) => {
-  const { id, title, assignedTo, module, status, priority } = req.body;
-  
-  if (id) {
-    const existing = state.tasks.find(t => t.id === id);
-    if (existing) {
-      if (title) existing.title = title;
-      if (assignedTo) existing.assignedTo = assignedTo;
-      if (module) existing.module = module;
-      if (status) existing.status = status;
-      if (priority) existing.priority = priority;
-
-      broadcastSSE('task_updated', existing);
-      broadcastSSE('state', state);
-      return res.json({ success: true, task: existing });
-    }
-  }
-
-  const newTask = {
-    id: 'task-' + Date.now(),
-    title: title || 'Nova Tarefa',
-    assignedTo: assignedTo || 'antigravity',
-    module: module || 'geral',
-    status: status || 'backlog',
-    priority: priority || 'medium'
-  };
-
-  state.tasks.push(newTask);
-  broadcastSSE('task_created', newTask);
-  broadcastSSE('state', state);
-
-  res.json({ success: true, task: newTask });
-});
-
-// Update agent status
-app.post('/api/agents/:id/status', (req, res) => {
-  const { id } = req.params;
-  const { status, lastAction } = req.body;
-
-  if (state.agents[id]) {
-    if (status) state.agents[id].status = status;
-    if (lastAction) state.agents[id].lastAction = lastAction;
-
-    broadcastSSE('agent_updated', state.agents[id]);
-    broadcastSSE('state', state);
-    return res.json({ success: true, agent: state.agents[id] });
-  }
-
-  res.status(404).json({ error: 'Agente não encontrado' });
-});
-
-// Initial boot
-updateGitLog();
+// Boot initial checks
+updateAllGitLogs();
 checkCentralApiStatus();
 
 server.listen(PORT, () => {
   console.log(`=======================================================`);
-  console.log(`🪐 COCKPIT VISUAL DA MESA REDONDA INICIADO COM SUCESSO!`);
+  console.log(`🪐 COCKPIT MULTI-PROJETO DA MESA REDONDA INICIADO!`);
   console.log(`👉 Acesse no navegador: http://localhost:${PORT}`);
-  console.log(`📦 Monorepo Alvo: ${rootDir}`);
+  console.log(`🌐 Projetos Registrados: ${state.projects.map(p => p.name).join(', ')}`);
   console.log(`=======================================================`);
 });
