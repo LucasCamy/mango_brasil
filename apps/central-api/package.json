@@ -1,0 +1,36 @@
+{
+  "name": "@totem-pdv/central-api",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "api:openapi": "tsx src/export-openapi.ts",
+    "dev": "node --env-file=../../.env --import tsx src/server.ts",
+    "start": "node dist/server.js",
+    "worker": "node --env-file=../../.env --import tsx src/worker.ts",
+    "print-agent": "node --env-file=../../.env --import tsx src/print-agent.ts",
+    "db:migrate": "node --env-file=../../.env --import tsx src/migrate.ts apply",
+    "db:status": "node --env-file=../../.env --import tsx src/migrate.ts status",
+    "db:seed": "node --env-file=../../.env --import tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@totem-pdv/shared-types": "workspace:*",
+    "@totem-pdv/tef-client": "workspace:*",
+    "@totem-pdv/fiscal-engine": "workspace:*",
+    "fastify": "^5.12.8",
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/cors": "^11.4.3",
+    "@fastify/jwt": "^10.2.8",
+    "@fastify/rate-limit": "^11.3.0",
+    "@fastify/helmet": "^13.0.2",
+    "pg": "^8.23.1",
+    "redis": "^6.3.1",
+    "amqplib": "^0.10.9",
+    "argon2": "^0.44.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.1"
+  },
+  "devDependencies": { "@types/pg": "^8.15.6", "@types/amqplib": "^0.10.8", "tsx": "^4.21.0", "typescript": "^5.9.3" }
+}
