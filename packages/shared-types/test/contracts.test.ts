@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centsSchema, isUuidV7, orderInputSchema, productInputSchema, uuidV7 } from '../src/index.js';
+import { centsSchema, isUuidV7, orderInputSchema, productInputSchema, shiftCloseInputSchema, signedCentsSchema, uuidV7 } from '../src/index.js';
 
 const fiscal = { ncm: '21069090', cest: '', cfop: '5102', origem: 0, cstCsosn: '102', aliquotaIcms: 0, ibsRate: 0.1, cbsRate: 0.9, aliquotaIbpt: 18.45 };
 const baseOrder = () => ({
@@ -54,5 +54,17 @@ describe('shared HTTP contracts', () => {
     const product = { categoryId: uuidV7(), name: 'Produto de teste', description: '', imageUrl: '', basePriceCents: 1_000, active: true, availableInKiosk: true, availableInPdv: true, sizes: [{ name: 'Pequeno', priceModifierCents: -1_001 }], additions: [], fiscal };
     expect(productInputSchema.safeParse(product).success).toBe(false);
     expect(productInputSchema.safeParse({ ...product, sizes: [{ ...product.sizes[0], priceCents: 500 }] }).success).toBe(true);
+  });
+
+  it.each(['CREDIT_CARD', 'DEBIT_CARD', 'PIX'] as const)('accepts a negative net counted amount for %s after cross-shift refunds', (method) => {
+    const declared = { CASH: 0, CREDIT_CARD: 0, DEBIT_CARD: 0, PIX: 0, [method]: -2_990 };
+    expect(shiftCloseInputSchema.parse({ declared, reason: 'Estorno de venda de turno anterior' }).declared[method]).toBe(-2_990);
+  });
+
+  it('keeps counted cash nonnegative and electronic settlement within integer limits', () => {
+    expect(shiftCloseInputSchema.safeParse({ declared: { CASH: -1, CREDIT_CARD: 0, DEBIT_CARD: 0, PIX: 0 }, reason: 'Contagem inválida' }).success).toBe(false);
+    expect(signedCentsSchema.safeParse(-999_999_999).success).toBe(true);
+    expect(signedCentsSchema.safeParse(-1_000_000_000).success).toBe(false);
+    expect(signedCentsSchema.safeParse(-1.5).success).toBe(false);
   });
 });
