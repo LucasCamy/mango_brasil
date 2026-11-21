@@ -138,7 +138,7 @@ describe('published OpenAPI contract', () => {
 
   it('reproduces the checked-in JSON artifact deterministically', async () => {
     const path = fileURLToPath(new URL('../../../packages/shared-types/openapi.json', import.meta.url));
-    const actual = await readFile(path, 'utf8');
+    const actual = (await readFile(path, 'utf8')).replaceAll('\r\n', '\n');
     expect(actual).toBe(`${JSON.stringify(buildOpenApi(), null, 2)}\n`);
     expect(JSON.stringify(buildOpenApi())).toBe(JSON.stringify(buildOpenApi()));
   });
