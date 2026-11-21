@@ -86,8 +86,9 @@ describe('shared HTTP contracts', () => {
 
   it('keeps counted cash nonnegative and electronic settlement within integer limits', () => {
     expect(shiftCloseInputSchema.safeParse({ declared: { CASH: -1, CREDIT_CARD: 0, DEBIT_CARD: 0, PIX: 0 }, reason: 'Contagem inválida' }).success).toBe(false);
-    expect(signedCentsSchema.safeParse(-999_999_999).success).toBe(true);
-    expect(signedCentsSchema.safeParse(-1_000_000_000).success).toBe(false);
+    expect(signedCentsSchema.safeParse(-999_999_999_999).success).toBe(true);
+    expect(signedCentsSchema.safeParse(-1_000_000_000_000).success).toBe(false);
+    expect(shiftCloseInputSchema.safeParse({ declared: { CASH: 3_000_003_797, CREDIT_CARD: 0, DEBIT_CARD: 0, PIX: 0 }, reason: 'Contagem consolidada de movimentações válidas' }).success).toBe(true);
     expect(signedCentsSchema.safeParse(-1.5).success).toBe(false);
   });
 });

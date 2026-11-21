@@ -33,7 +33,8 @@ export const orderOriginSchema = z.enum(orderOrigins);
 export const fiscalModeSchema = z.enum(fiscalModes);
 export const centsSchema = z.number().int().min(0).max(999_999_999);
 /** Electronic reconciliation uses net settlement: cross-shift refunds may exceed sales. */
-export const signedCentsSchema = z.number().int().min(-999_999_999).max(999_999_999);
+export const reconciliationCentsSchema = z.number().int().min(0).max(999_999_999_999);
+export const signedCentsSchema = z.number().int().min(-999_999_999_999).max(999_999_999_999);
 export const positiveCentsSchema = centsSchema.min(1);
 export const idSchema = z.string().trim().min(1).max(100);
 export const uuidSchema = z.string().uuid('Informe um identificador UUID válido.');
@@ -278,7 +279,7 @@ export const cashMovementInputSchema = z.object({
 }).strict();
 export type CashMovementInput = z.infer<typeof cashMovementInputSchema>;
 export const shiftCloseInputSchema = z.object({
-  declared: z.object({ CASH: centsSchema, CREDIT_CARD: signedCentsSchema, DEBIT_CARD: signedCentsSchema, PIX: signedCentsSchema }).strict(), reason: reasonSchema,
+  declared: z.object({ CASH: reconciliationCentsSchema, CREDIT_CARD: signedCentsSchema, DEBIT_CARD: signedCentsSchema, PIX: signedCentsSchema }).strict(), reason: reasonSchema,
 }).strict();
 export type ShiftCloseInput = z.infer<typeof shiftCloseInputSchema>;
 

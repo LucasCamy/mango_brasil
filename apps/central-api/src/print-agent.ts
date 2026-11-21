@@ -10,6 +10,7 @@ const terminalId=process.env.PRINT_TERMINAL_ID??'CAIXA-01';
 const transport=process.env.PRINT_TRANSPORT??'tcp';
 if(!['tcp','spool'].includes(transport))throw Error('PRINT_TRANSPORT deve ser tcp ou spool.');
 if(transport==='spool'&&process.env.NODE_ENV==='production')throw Error('Produção exige transporte TCP ESC/POS. Spool é apenas desenvolvimento.');
+if(transport==='tcp'&&!process.env.PRINTER_HOST)throw Error('Configure PRINTER_HOST antes de iniciar o agente TCP.');
 const directory=resolve(process.env.PRINT_SPOOL_DIR??'../../.local/print-spool');await mkdir(directory,{recursive:true});
 const stop=new AbortController();for(const sig of ['SIGINT','SIGTERM'] as const)process.once(sig,()=>stop.abort());
 async function request(path:string,body:unknown){
