@@ -43,6 +43,15 @@ flutter test
 flutter build apk --debug
 ```
 
+O teste REST integrado usa a API Docker real, PostgreSQL, RabbitMQ e um endpoint TCP local que recebe bytes ESC/POS. Fica em `tool/central_rest_test.dart`, fora da descoberta da suíte padrão, e exige ativação explícita:
+
+```powershell
+$env:E2E_REAL_API = '1'
+flutter test tool/central_rest_test.dart
+```
+
+Execute a partir desta pasta com a infraestrutura local saudável. O teste lê as credenciais de bootstrap e do terminal diretamente de `../../.env`, sem exibi-las, e aceita apenas URL de API em loopback. Exercita uma venda online e outra em contingência, reabre o SQLite, confirma importação pela fila e mantém as mesmas chaves, preços e dados fiscais. As vendas fictícias são canceladas pelo fluxo auditado de supervisor ao final; catálogo, empresa, terminal e volumes não são alterados. A evidência sem credenciais fica em `build/evidence/central-rest.json`. O transporte TCP virtual não representa homologação de impressora física.
+
 Os testes usam SQLite real em arquivos temporários e cobrem reabertura do banco, metadados fiscais, imagens, UUIDv7, timeout/cancelamento HTTP, autorização idempotente, órfãos no boot, impressão conhecida/incerta, checkpoints interrompidos, conferência explícita, reversão, ACKs fora de ordem, outbox `202`, manutenção, inatividade dentro de modais e interação em 360, 768 e 1080 pixels. O transporte ESC/POS é exercitado contra um servidor TCP local, incluindo sensor sem papel e timeout; isso não substitui o ensaio no hardware da loja.
 
 A configuração Android de release nunca usa a chave debug. Para assinar a distribuição, crie `android/key.properties` local com `storeFile`, `storePassword`, `keyAlias` e `keyPassword`; esse arquivo e os keystores estão no `.gitignore`. Sem essa configuração, o build de release fica sem assinatura. Instale o sistema em modo kiosk do sistema operacional e provisione a credencial individual do terminal fora do controle de versão. O alvo web do scaffold não oferece a garantia SQLite nativa e não é suportado nesta entrega.
