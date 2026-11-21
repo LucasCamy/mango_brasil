@@ -307,19 +307,19 @@ export interface HeartbeatResponse { terminalId: string; status: KioskStatus; ma
 export const maintenanceInputSchema = z.object({ enabled: z.boolean(), message: z.string().trim().max(300), reason: reasonSchema }).strict();
 export type MaintenanceInput = z.infer<typeof maintenanceInputSchema>;
 
-export type AuditAction = 'ORDER_CANCELLED' | 'PAYMENT_REVERSED' | 'SHIFT_CLOSED' | 'CASH_BLEED' | 'CASH_SUPPLY' | 'PRODUCT_PRICE_CHANGED' | 'KIOSK_MAINTENANCE_TOGGLED' | 'USER_CREATED' | 'USER_UPDATED' | 'COMPANY_SETTINGS_UPDATED' | 'TERMINAL_CREATED';
+export type AuditAction = 'ORDER_CANCELLED' | 'PAYMENT_REVERSED' | 'SHIFT_OPENED' | 'SHIFT_CLOSED' | 'CASH_BLEED' | 'CASH_SUPPLY' | 'PRODUCT_CREATED' | 'PRODUCT_UPDATED' | 'PRODUCT_PRICE_CHANGED' | 'KIOSK_MAINTENANCE_TOGGLED' | 'USER_CREATED' | 'USER_UPDATED' | 'COMPANY_SETTINGS_UPDATED' | 'TERMINAL_CREATED' | 'PRINT_FAILED' | 'PRINT_COMPLETED';
 export interface AuditLog {
   id: string; actorUserId: string; actorName?: string; authorizedByUserId?: string; action: AuditAction;
   resourceId: string; reason: string; before: unknown; after: unknown; createdAt: string;
 }
-export type PrintJobStatus = 'QUEUED' | 'CLAIMED' | 'PRINTED' | 'FAILED';
+export type PrintJobStatus = 'QUEUED' | 'CLAIMED' | 'PRINTED' | 'FAILED' | 'SIMULATED';
 export interface PrintJob {
   id: string; terminalId: string; orderId?: string; shiftId?: string; kind: 'ORDER_RECEIPT' | 'KITCHEN_TICKET' | 'SHIFT_REPORT';
-  status: PrintJobStatus; attempts: number; createdAt: string; printedAt?: string; payload: unknown;
+  status: PrintJobStatus; attempts: number; createdAt: string; printedAt?: string; payload: unknown; claimToken?: string; lastError?: string;
 }
 export interface FiscalResult { orderId: string; mode: FiscalMode; nfceStatus: NfceStatus; processedAt: string }
 export interface RealtimeEvent {
-  id: string; type: 'catalog.updated' | 'order.created' | 'order.updated' | 'terminal.updated' | 'shift.updated' | 'print.updated'; resourceId?: string; occurredAt: string;
+  id: string; type: 'catalog.updated' | 'order.created' | 'order.updated' | 'terminal.updated' | 'shift.updated' | 'print.updated' | 'settings.updated'; resourceId?: string; occurredAt: string;
 }
 export const queueNames = { kdsOrders: 'kds.orders.queue', printJobs: 'print.jobs.queue', offlineSync: 'totem.offline_sync.queue', fiscalNfce: 'fiscal.nfce.queue' } as const;
 export const apiSchemas = {
