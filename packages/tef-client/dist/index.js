@@ -1,168 +1,264 @@
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.TEFManager = exports.MockPinpadDriver = void 0;
-const crypto = __importStar(require("crypto"));
-/**
- * Driver Simulado de Pinpad para desenvolvimento e testes
- */
-class MockPinpadDriver {
-    async connect() {
-        return true;
-    }
-    async disconnect() { }
-    async processPayment(amount, operationType, onProgress) {
-        if (operationType === 'PIX_PINPAD') {
-            onProgress({ message: 'Aguardando leitura do QR Code Pix no Pinpad...', step: 'PROCESSING' });
-        }
-        else {
-            onProgress({ message: 'Aproxime, insira ou passe o cartão', step: 'INSERT_CARD' });
-            await new Promise((r) => setTimeout(r, 600));
-            onProgress({ message: 'Digite a senha no teclado do Pinpad e tecle ENTER', step: 'ENTER_PIN' });
-            await new Promise((r) => setTimeout(r, 800));
-            onProgress({ message: 'Processando transação com a adquirente...', step: 'PROCESSING' });
-            await new Promise((r) => setTimeout(r, 600));
-            onProgress({ message: 'Transação autorizada! Pode retirar o cartão.', step: 'REMOVE_CARD' });
-        }
-        const nsu = Math.floor(100000 + Math.random() * 900000).toString();
-        const authCode = Math.floor(100000 + Math.random() * 900000).toString();
-        return {
-            success: true,
-            nsu,
-            authCode,
-            brand: operationType === 'CREDIT' ? 'Mastercard' : 'Visa',
-            lastDigits: '4567',
-            acquirer: 'Rede/SiTef'
-        };
-    }
-    async confirm(nsu) {
-        return true;
-    }
-    async reverse(nsu) {
-        return true;
+import { paymentAuthorizeInputSchema, uuidV7, } from '@totem-pdv/shared-types';
+export class PaymentGatewayError extends Error {
+    code;
+    constructor(code, message) {
+        super(message);
+        this.name = 'PaymentGatewayError';
+        this.code = code;
     }
 }
-exports.MockPinpadDriver = MockPinpadDriver;
-/**
- * Gerenciador de Transações TEF com garantia de Two-Phase Commit e Desfazimento
- */
-class TEFManager {
-    driver;
-    pendingTransactions = new Map();
-    constructor(driver) {
-        this.driver = driver || new MockPinpadDriver();
+const progressMessages = {
+    INITIALIZING: 'Inicializando o terminal simulado',
+    WAITING_CARD_OR_QR: 'Aproxime o cartão ou leia o QR Code Pix simulado',
+    PROCESSING: 'Processando o pagamento simulado',
+    AUTHORIZED: 'Pagamento autorizado. Aguardando gravação e impressão do pedido',
+    CONFIRMED: 'Pagamento confirmado',
+    REVERSED: 'Pagamento desfeito',
+    FAILED: 'Pagamento não autorizado',
+};
+function checkAbort(signal) {
+    if (signal.aborted) {
+        throw signal.reason instanceof PaymentGatewayError
+            ? signal.reason
+            : new PaymentGatewayError('ABORTED', 'Operação de pagamento interrompida.');
     }
-    /**
-     * Fase 1: Autorização da Transação com Pinpad
-     */
-    async startPayment(orderId, amount, operationType, onProgress) {
-        const transactionId = crypto.randomUUID();
-        const now = new Date().toISOString();
-        const transaction = {
-            id: transactionId,
-            orderId,
-            operationType,
-            amount,
-            status: 'INITIALIZING',
-            createdAt: now,
-            updatedAt: now
+}
+function delay(milliseconds, signal) {
+    checkAbort(signal);
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            clearTimeout(timer);
+            signal.removeEventListener('abort', onAbort);
+            try {
+                checkAbort(signal);
+            }
+            catch (error) {
+                reject(error);
+            }
         };
-        this.pendingTransactions.set(transactionId, transaction);
-        const result = await this.driver.processPayment(amount, operationType, onProgress || (() => { }));
-        if (result.success && result.nsu) {
-            transaction.status = 'AUTHORIZED';
-            transaction.nsu = result.nsu;
-            transaction.authorizationCode = result.authCode;
-            transaction.cardBrand = result.brand;
-            transaction.cardLastDigits = result.lastDigits;
-            transaction.acquirerName = result.acquirer;
-            transaction.updatedAt = new Date().toISOString();
+        const timer = setTimeout(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }, milliseconds);
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
+async function interruptible(operation, signal) {
+    checkAbort(signal);
+    return await new Promise((resolve, reject) => {
+        const onAbort = () => {
+            signal.removeEventListener('abort', onAbort);
+            try {
+                checkAbort(signal);
+            }
+            catch (error) {
+                reject(error);
+            }
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        operation.then((result) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(result);
+        }, (error) => {
+            signal.removeEventListener('abort', onAbort);
+            reject(error);
+        });
+    });
+}
+function randomDigits(length) {
+    // Rejection sampling avoids modulo bias while keeping provider references numeric.
+    const digits = [];
+    while (digits.length < length) {
+        for (const byte of globalThis.crypto.getRandomValues(new Uint8Array(length))) {
+            if (byte < 250)
+                digits.push(String(byte % 10));
+            if (digits.length === length)
+                break;
         }
-        else {
-            transaction.status = 'FAILED';
-            transaction.errorMessage = result.errorMessage || 'Transação recusada pela operadora.';
-            transaction.updatedAt = new Date().toISOString();
-            this.pendingTransactions.delete(transactionId);
+    }
+    return digits.join('');
+}
+/** Sandbox provider with full 2PC semantics. There is deliberately no default store. */
+export class SimulatedPinpadAdapter {
+    store;
+    options;
+    stepDelayMs;
+    timeoutMs;
+    orphanGracePeriodMs;
+    now;
+    constructor(store, options = {}) {
+        this.store = store;
+        this.options = options;
+        this.stepDelayMs = options.stepDelayMs ?? 350;
+        this.timeoutMs = options.timeoutMs ?? 10_000;
+        this.orphanGracePeriodMs = options.orphanGracePeriodMs ?? 30_000;
+        this.now = options.now ?? (() => new Date());
+        if (!Number.isFinite(this.stepDelayMs) || this.stepDelayMs < 0 || !Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0 || !Number.isFinite(this.orphanGracePeriodMs) || this.orphanGracePeriodMs < 0) {
+            throw new RangeError('Os tempos do terminal devem ser finitos e não negativos.');
         }
+    }
+    async authorize(input, context = {}) {
+        const parsed = paymentAuthorizeInputSchema.parse(input);
+        return await this.operation(context, async (signal) => {
+            const existing = await interruptible(this.store.findByIdempotencyKey(parsed.idempotencyKey), signal);
+            checkAbort(signal);
+            const now = this.now().toISOString();
+            const transaction = existing ?? await interruptible(this.store.create({
+                ...parsed, id: uuidV7(this.now().getTime()), status: 'INITIALIZING', version: 0, createdAt: now, updatedAt: now,
+            }), signal);
+            checkAbort(signal);
+            this.assertSameRequest(transaction, parsed);
+            if (transaction.status !== 'INITIALIZING')
+                return transaction;
+            this.notify(transaction, context);
+            let current;
+            try {
+                // Only one replica claims INITIALIZING; retries never call the provider twice.
+                current = await this.transition(transaction, 'WAITING_CARD_OR_QR', signal);
+            }
+            catch (error) {
+                if (error instanceof PaymentGatewayError && error.code === 'CONFLICT') {
+                    const claimed = await interruptible(this.store.get(transaction.id), signal);
+                    if (claimed)
+                        return claimed;
+                }
+                throw error;
+            }
+            this.notify(current, context);
+            await delay(this.stepDelayMs, signal);
+            current = await this.transition(current, 'PROCESSING', signal);
+            this.notify(current, context);
+            await delay(this.stepDelayMs, signal);
+            current = this.options.failAuthorization
+                ? await this.transition(current, 'FAILED', signal, { failureCode: 'SIMULATED_DECLINE' })
+                : await this.transition(current, 'AUTHORIZED', signal, { nsu: randomDigits(12), authorizationCode: randomDigits(6) });
+            this.notify(current, context);
+            return current;
+        });
+    }
+    async confirm(transactionId, context = {}) {
+        return await this.operation(context, async (signal) => {
+            const transaction = await this.required(transactionId, signal);
+            if (transaction.status === 'CONFIRMED')
+                return transaction;
+            if (transaction.status !== 'AUTHORIZED')
+                throw new PaymentGatewayError('INVALID_STATE', 'Apenas um pagamento autorizado pode ser confirmado.');
+            if (this.options.failConfirmation)
+                throw new PaymentGatewayError('CONFIRMATION_FAILED', 'Confirmação simulada indisponível. A pendência permanece recuperável.');
+            await delay(this.stepDelayMs, signal);
+            const result = await this.transitionOrReplay(transaction, 'CONFIRMED', signal);
+            this.notify(result, context);
+            return result;
+        });
+    }
+    async reverse(transactionId, context = {}) {
+        return await this.operation(context, async (signal) => {
+            const transaction = await this.required(transactionId, signal);
+            if (transaction.status === 'REVERSED')
+                return transaction;
+            if (transaction.status === 'FAILED')
+                throw new PaymentGatewayError('INVALID_STATE', 'Um pagamento recusado não possui autorização para desfazer.');
+            if (this.options.failReversal)
+                throw new PaymentGatewayError('REVERSAL_FAILED', 'Desfazimento simulado indisponível. A pendência permanece recuperável.');
+            await delay(this.stepDelayMs, signal);
+            const result = await this.transitionOrReplay(transaction, 'REVERSED', signal);
+            this.notify(result, context);
+            return result;
+        });
+    }
+    async resolveOrphanPendencies(resolveCommittedOrder, context = {}) {
+        return await this.operation(context, async (signal) => {
+            const report = { confirmed: 0, reversed: 0, deferred: 0, failed: [] };
+            const transactions = await interruptible(this.store.listPending(), signal);
+            for (const transaction of transactions) {
+                checkAbort(signal);
+                // listPending must exclude settled payments; also defend against stale stores.
+                if (['CONFIRMED', 'REVERSED', 'FAILED'].includes(transaction.status))
+                    continue;
+                if (this.now().getTime() - Date.parse(transaction.updatedAt) < this.orphanGracePeriodMs) {
+                    report.deferred += 1;
+                    continue;
+                }
+                try {
+                    const decision = await interruptible(resolveCommittedOrder(transaction), signal);
+                    if (decision.kind === 'defer') {
+                        report.deferred += 1;
+                    }
+                    else if (decision.kind === 'confirm') {
+                        if (transaction.status !== 'AUTHORIZED' || decision.orderId.length === 0) {
+                            report.failed.push(transaction.id);
+                            continue;
+                        }
+                        await this.confirm(transaction.id, { ...context, signal });
+                        report.confirmed += 1;
+                    }
+                    else {
+                        await this.reverse(transaction.id, { ...context, signal });
+                        report.reversed += 1;
+                    }
+                }
+                catch (error) {
+                    checkAbort(signal);
+                    report.failed.push(transaction.id);
+                }
+            }
+            return report;
+        });
+    }
+    assertSameRequest(transaction, input) {
+        if (transaction.idempotencyKey !== input.idempotencyKey || transaction.terminalId !== input.terminalId || transaction.method !== input.method || transaction.amountCents !== input.amountCents) {
+            throw new PaymentGatewayError('IDEMPOTENCY_CONFLICT', 'A chave de idempotência já está vinculada a outro pagamento.');
+        }
+    }
+    async required(id, signal) {
+        const transaction = await interruptible(this.store.get(id), signal);
+        checkAbort(signal);
+        if (!transaction)
+            throw new PaymentGatewayError('NOT_FOUND', 'Pagamento não encontrado.');
         return transaction;
     }
-    /**
-     * Fase 2: Confirmação definitiva da transação após emissão da NFC-e e impressão
-     */
-    async confirmPayment(transactionId) {
-        const transaction = this.pendingTransactions.get(transactionId);
-        if (!transaction || !transaction.nsu) {
-            return false;
-        }
-        const confirmed = await this.driver.confirm(transaction.nsu);
-        if (confirmed) {
-            transaction.status = 'CONFIRMED';
-            transaction.updatedAt = new Date().toISOString();
-            this.pendingTransactions.delete(transactionId);
-            return true;
-        }
-        return false;
+    async transition(transaction, status, signal, extra = {}) {
+        checkAbort(signal);
+        return await interruptible(this.store.update({ ...transaction, ...extra, status, version: transaction.version + 1, updatedAt: this.now().toISOString() }, transaction.status), signal);
     }
-    /**
-     * Desfazimento / Estorno automático em caso de erro na impressão ou cancelamento
-     */
-    async reversePayment(transactionId) {
-        const transaction = this.pendingTransactions.get(transactionId);
-        if (!transaction || !transaction.nsu) {
-            return false;
+    async transitionOrReplay(transaction, status, signal) {
+        try {
+            return await this.transition(transaction, status, signal);
         }
-        const reversed = await this.driver.reverse(transaction.nsu);
-        transaction.status = 'CANCELLED';
-        transaction.updatedAt = new Date().toISOString();
-        this.pendingTransactions.delete(transactionId);
-        return reversed;
-    }
-    /**
-     * Varredura na inicialização do Kiosk para desfazer transações que ficaram órfãs (ex: queda de luz)
-     */
-    async resolveOrphanPendencies() {
-        let resolvedCount = 0;
-        for (const [id, tx] of this.pendingTransactions.entries()) {
-            if (tx.status === 'AUTHORIZED' && tx.nsu) {
-                await this.driver.reverse(tx.nsu);
-                tx.status = 'PENDING_REVERSAL';
-                this.pendingTransactions.delete(id);
-                resolvedCount++;
+        catch (error) {
+            if (error instanceof PaymentGatewayError && error.code === 'CONFLICT') {
+                const settled = await this.required(transaction.id, signal);
+                if (settled.status === status)
+                    return settled;
             }
+            throw error;
         }
-        return resolvedCount;
+    }
+    notify(transaction, context) {
+        try {
+            context.onProgress?.({ transactionId: transaction.id, status: transaction.status, message: progressMessages[transaction.status] });
+        }
+        catch {
+            // A broken UI observer must never change a provider-side financial result.
+        }
+    }
+    async operation(context, execute) {
+        const timeoutMs = context.timeoutMs ?? this.timeoutMs;
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+            throw new RangeError('timeoutMs deve ser positivo e finito.');
+        const controller = new AbortController();
+        const onAbort = () => controller.abort(new PaymentGatewayError('ABORTED', 'Operação de pagamento interrompida.'));
+        const timer = setTimeout(() => controller.abort(new PaymentGatewayError('TIMEOUT', 'O terminal excedeu o tempo limite. A pendência será conciliada.')), timeoutMs);
+        context.signal?.addEventListener('abort', onAbort, { once: true });
+        if (context.signal?.aborted)
+            onAbort();
+        try {
+            checkAbort(controller.signal);
+            return await execute(controller.signal);
+        }
+        finally {
+            clearTimeout(timer);
+            context.signal?.removeEventListener('abort', onAbort);
+        }
     }
 }
-exports.TEFManager = TEFManager;

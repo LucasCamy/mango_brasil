@@ -2,16 +2,18 @@
   "name": "@totem-pdv/tef-client",
   "version": "1.0.0",
   "description": "Cliente de comunicação com Pinpad e gerenciador de transações TEF com desfazimento automático",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@totem-pdv/shared-types": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.4.5",
-    "@types/node": "^20.12.7"
+    "typescript": "^5.9.3"
   }
 }
