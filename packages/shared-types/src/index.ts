@@ -133,6 +133,8 @@ export const productInputSchema = z.object({
   basePriceCents: centsSchema, active: z.boolean(), availableInKiosk: z.boolean(), availableInPdv: z.boolean(),
   sizes: z.array(productSizeInputSchema).max(30), additions: z.array(productAdditionInputSchema).max(50),
   fiscal: fiscalTaxDataSchema,
+  expectedVersion: z.number().int().min(1).max(2_147_483_647).optional(),
+  changeReason: reasonSchema.optional(),
 }).strict().superRefine((product, context) => {
   const explicitIds = [...product.sizes, ...product.additions].map((entry) => entry.id).filter((id): id is string => id !== undefined);
   if (new Set(explicitIds).size !== explicitIds.length) {
@@ -148,8 +150,9 @@ export type ProductInput = z.infer<typeof productInputSchema>;
 export interface Product {
   id: string; categoryId: string; name: string; description: string; imageUrl: string;
   basePriceCents: number; active: boolean; availableInKiosk: boolean; availableInPdv: boolean;
-  sizes: ProductSize[]; additions: ProductAddition[]; fiscal: FiscalTaxData; createdAt: string; updatedAt: string;
+  sizes: ProductSize[]; additions: ProductAddition[]; fiscal: FiscalTaxData; version: number; createdAt: string; updatedAt: string;
 }
+export type ProductDTO = Product;
 export interface CatalogDTO { categories: ProductCategory[]; products: Product[]; version: string }
 export type Catalog = CatalogDTO;
 
@@ -188,7 +191,10 @@ export const offlineOrderEnvelopeSchema = z.object({
 export type OfflineOrderEnvelope = z.infer<typeof offlineOrderEnvelopeSchema>;
 export const orderInputSchema = z.object({
   idempotencyKey: uuidV7Schema, terminalId: idSchema, origin: orderOriginSchema,
-  items: z.array(orderItemInputSchema).min(1).max(100), payment: orderPaymentInputSchema, offline: offlineOrderEnvelopeSchema.optional(),
+  items: z.array(orderItemInputSchema).min(1).max(100), payment: orderPaymentInputSchema,
+  /** A client quote is only a precondition; the server remains the price authority. */
+  expectedTotalCents: positiveCentsSchema.optional(),
+  offline: offlineOrderEnvelopeSchema.optional(),
 }).strict().superRefine((order, context) => {
   if (order.payment.method === 'CASH' && order.origin !== 'PDV_ASSISTIDO') {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['payment', 'method'], message: 'Dinheiro só está disponível no PDV assistido.' });
@@ -230,6 +236,13 @@ export interface OrderDTO {
   payments: OrderPayment[]; nfceStatus: NfceStatus; offline?: boolean; createdAt: string; updatedAt: string;
 }
 export type Order = OrderDTO;
+/** The kitchen receives preparation data without any nested financial or fiscal data. */
+export type ProductionOrderItem = Pick<OrderItem, 'id' | 'productId' | 'productName' | 'sizeId' | 'sizeName' | 'quantity' | 'notes'> & {
+  additions: Pick<SelectedAddition, 'additionId' | 'name' | 'quantity'>[];
+};
+export type ProductionOrderDTO = Pick<OrderDTO, 'id' | 'publicTicketNumber' | 'origin' | 'status' | 'createdAt' | 'updatedAt'> & {
+  items: ProductionOrderItem[];
+};
 export const paymentAuthorizeInputSchema = z.object({
   idempotencyKey: uuidV7Schema, terminalId: idSchema, method: electronicPaymentMethodSchema, amountCents: positiveCentsSchema,
 }).strict();

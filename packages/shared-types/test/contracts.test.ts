@@ -7,6 +7,10 @@ const baseOrder = () => ({
   items: [{ productId: uuidV7(), quantity: 1, additions: [] }],
   payment: { idempotencyKey: uuidV7(), method: 'CASH' as const, amountTenderedCents: 5_000 },
 });
+const baseProduct = () => ({
+  categoryId: uuidV7(), name: 'Produto de teste', description: '', imageUrl: '', basePriceCents: 1_000,
+  active: true, availableInKiosk: true, availableInPdv: true, sizes: [], additions: [], fiscal,
+});
 
 describe('shared HTTP contracts', () => {
   it('creates RFC 9562 UUIDv7 identifiers with millisecond timestamp and secure random tail', () => {
@@ -24,6 +28,25 @@ describe('shared HTTP contracts', () => {
     expect(centsSchema.safeParse(-1).success).toBe(false);
     expect(orderInputSchema.safeParse({ ...baseOrder(), totalCents: 1 }).success).toBe(false);
     expect(orderInputSchema.safeParse(baseOrder()).success).toBe(true);
+  });
+
+  it('accepts an optional quoted checkout total only in positive integer cents', () => {
+    const order = baseOrder();
+    expect(orderInputSchema.parse({ ...order, expectedTotalCents: 2_990 }).expectedTotalCents).toBe(2_990);
+    for (const expectedTotalCents of [0, -1, 29.9, 1_000_000_000]) {
+      expect(orderInputSchema.safeParse({ ...order, expectedTotalCents }).success).toBe(false);
+    }
+    expect(orderInputSchema.parse(order).expectedTotalCents).toBeUndefined();
+  });
+
+  it('preserves optimistic product version and an audit reason, while rejecting malformed metadata', () => {
+    const product = baseProduct();
+    expect(productInputSchema.parse(product).expectedVersion).toBeUndefined();
+    expect(productInputSchema.parse({ ...product, expectedVersion: 3, changeReason: '  Atualização do custo de insumos  ' })).toMatchObject({ expectedVersion: 3, changeReason: 'Atualização do custo de insumos' });
+    for (const expectedVersion of [0, -1, 1.5, 2_147_483_648]) {
+      expect(productInputSchema.safeParse({ ...product, expectedVersion }).success).toBe(false);
+    }
+    expect(productInputSchema.safeParse({ ...product, expectedVersion: 3, changeReason: '  ' }).success).toBe(false);
   });
 
   it('rejects non-UUID entity references and repeated additions', () => {
