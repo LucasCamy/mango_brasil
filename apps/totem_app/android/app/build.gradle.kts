@@ -1,7 +1,15 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val releaseKeystore = Properties()
+val releaseKeystoreFile = rootProject.file("key.properties")
+if (releaseKeystoreFile.exists()) {
+    releaseKeystoreFile.inputStream().use { releaseKeystore.load(it) }
 }
 
 android {
@@ -15,7 +23,6 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "br.com.burgertech.totem_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -25,11 +32,21 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseKeystoreFile.exists()) {
+            create("release") {
+                keyAlias = releaseKeystore.getProperty("keyAlias")
+                keyPassword = releaseKeystore.getProperty("keyPassword")
+                storeFile = file(releaseKeystore.getProperty("storeFile"))
+                storePassword = releaseKeystore.getProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Never distribute a production build signed with a development key.
+            signingConfig = if (releaseKeystoreFile.exists()) signingConfigs.getByName("release") else null
         }
     }
 }
