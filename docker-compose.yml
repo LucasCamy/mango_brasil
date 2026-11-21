@@ -1,0 +1,135 @@
+name: mango-pdv
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Run pnpm dev:env}
+      POSTGRES_USER: ${POSTGRES_USER:?Run pnpm dev:env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run pnpm dev:env}
+    ports: ["127.0.0.1:54329:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    environment: { REDIS_PASSWORD: "${REDIS_PASSWORD:?Run pnpm dev:env}" }
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    ports: ["127.0.0.1:63799:6379"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Run pnpm dev:env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Run pnpm dev:env}
+    ports: ["127.0.0.1:5673:5672", "127.0.0.1:15679:15672"]
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    build: { context: ., dockerfile: apps/central-api/Dockerfile }
+    command: [node, apps/central-api/dist/migrate.js, apply]
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?Run pnpm dev:env}
+    depends_on: { postgres: { condition: service_healthy } }
+    profiles: [app]
+  central-api:
+    build: { context: ., dockerfile: apps/central-api/Dockerfile }
+    environment: &api_env
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://totem_app:${APP_DATABASE_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:?Configure JWT_SECRET}
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:?Configure SETTINGS_ENCRYPTION_KEY}
+      PRINT_AGENT_TOKEN: ${PRINT_AGENT_TOKEN:?Configure PRINT_AGENT_TOKEN}
+      FISCAL_MODE: ${FISCAL_MODE:-disabled}
+      PAYMENT_MODE: simulated
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-America/Cuiaba}
+      WEB_ORIGIN: ${PUBLIC_WEB_ORIGIN:-http://localhost:8080}
+    ports: ["127.0.0.1:4000:4000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    profiles: [app]
+  worker:
+    build: { context: ., dockerfile: apps/central-api/Dockerfile }
+    command: [node, apps/central-api/dist/worker.js]
+    environment: *api_env
+    depends_on: { central-api: { condition: service_healthy } }
+    healthcheck:
+      test: [CMD, node, apps/central-api/dist/worker-health.js]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+    restart: unless-stopped
+    profiles: [app]
+  print-agent:
+    build: { context: ., dockerfile: apps/central-api/Dockerfile }
+    command: [node, apps/central-api/dist/print-agent.js]
+    environment:
+      NODE_ENV: production
+      CENTRAL_API_URL: http://central-api:4000
+      PRINT_AGENT_TOKEN: ${PRINT_AGENT_TOKEN:?Configure PRINT_AGENT_TOKEN}
+      PRINT_TRANSPORT: tcp
+      PRINT_SPOOL_DIR: /var/lib/print-agent
+      PRINT_TERMINAL_ID: ${PRINT_TERMINAL_ID:-CAIXA-01}
+      PRINTER_HOST: ${PRINTER_HOST:-}
+      PRINTER_PORT: ${PRINTER_PORT:-9100}
+    volumes: [print_journals:/var/lib/print-agent]
+    depends_on: { central-api: { condition: service_healthy } }
+    restart: unless-stopped
+    profiles: [printer]
+  bootstrap:
+    build: { context: ., dockerfile: apps/central-api/Dockerfile }
+    command: [node, apps/central-api/dist/seed.js]
+    environment:
+      NODE_ENV: production
+      ALLOW_DEMO_SEED: 'false'
+      DATABASE_URL: postgresql://totem_app:${APP_DATABASE_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      BOOTSTRAP_PIN: ${BOOTSTRAP_PIN:-}
+      TERMINAL_ID: ${TERMINAL_ID:-TOTEM-01}
+      TERMINAL_TOKEN: ${TERMINAL_TOKEN:-}
+    depends_on: { migrate: { condition: service_completed_successfully } }
+    profiles: [setup]
+  central-web:
+    build: { context: ., dockerfile: apps/central-web/Dockerfile }
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on: { central-api: { condition: service_healthy } }
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/healthz]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    profiles: [app]
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  print_journals:
