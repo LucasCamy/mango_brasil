@@ -114,7 +114,7 @@ void main() {
   });
 
   testWidgets(
-    'impressão incerta mostra conferência e libera próximo atendimento sem duplicar venda',
+    'impressão incerta mantém senha e próximo atendimento mesmo com impressora indisponível',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1080, 1920);
@@ -128,12 +128,20 @@ void main() {
       printer.fail = true;
       printer.uncertainFailure = true;
       await tester.runAsync(() => controller.pay(PaymentMethod.pix));
+      printer.printerState = PrinterState.error;
+      await tester.runAsync(controller.refreshTerminal);
       await tester.pumpAndSettle();
       expect(find.text('Comprovante em conferência'), findsOneWidget);
+      expect(find.text('#${controller.result!.ticket}'), findsOneWidget);
+      expect(controller.terminal.printer, PrinterState.error);
       expect(controller.cart, isEmpty);
       await tester.tap(find.text('Próximo atendimento'));
       await tester.pumpAndSettle();
-      expect(find.text('Toque para começar'), findsOneWidget);
+      expect(controller.page, KioskPage.attract);
+      expect(find.text('Atendimento em pausa'), findsOneWidget);
+      expect(find.text('Toque para começar'), findsNothing);
+      controller.startShopping();
+      expect(controller.page, KioskPage.attract);
       expect(controller.printReviewCount, 1);
       expect(printer.printed, hasLength(1));
       expect(tester.takeException(), isNull);

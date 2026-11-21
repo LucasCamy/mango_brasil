@@ -128,6 +128,8 @@ class _KioskScreenState extends State<KioskScreen> {
               Expanded(
                 child: controller.loading
                     ? const _CatalogSkeleton()
+                    : controller.page == KioskPage.review
+                    ? PendingPrintView(controller: controller)
                     : controller.terminal.blocksSales ||
                           controller.recoveryRequired
                     ? _Blocked(controller: controller)
