@@ -180,7 +180,7 @@ export const offlineOrderLineSchema = z.object({
   productId: uuidSchema, productName: z.string().trim().min(1).max(160), sizeId: uuidSchema.optional(), sizeName: z.string().trim().min(1).max(60).optional(),
   unitPriceCents: centsSchema, quantity: z.number().int().min(1).max(99),
   additions: z.array(z.object({ additionId: uuidSchema, name: z.string().trim().min(1).max(80), priceCents: centsSchema, quantity: z.number().int().min(1).max(50) }).strict()).max(50),
-  notes: z.string().trim().max(300).optional(), totalCents: positiveCentsSchema, fiscal: fiscalTaxDataSchema,
+  notes: z.string().trim().max(300).optional(), totalCents: centsSchema, fiscal: fiscalTaxDataSchema,
 }).strict();
 export type OfflineOrderLine = z.infer<typeof offlineOrderLineSchema>;
 export const offlineOrderEnvelopeSchema = z.object({
@@ -290,9 +290,10 @@ export const companyAddressSchema = z.object({
   postalCode: z.string().regex(/^\d{8}$/, 'CEP deve ter 8 dígitos.'), ibgeCityCode: z.string().regex(/^\d{7}$/, 'Código IBGE deve ter 7 dígitos.'),
 }).strict();
 export type CompanyAddress = z.infer<typeof companyAddressSchema>;
+export const cnpjSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9]{12}\d{2}$/, 'CNPJ deve ter 14 posições: 12 letras/números e 2 dígitos finais, sem pontuação.');
 export const companySettingsInputSchema = z.object({
   legalName: z.string().trim().min(2).max(160), tradeName: z.string().trim().min(2).max(160),
-  cnpj: z.string().regex(/^\d{14}$/, 'CNPJ deve ter 14 dígitos.'), stateRegistration: z.string().trim().min(1).max(30),
+  cnpj: cnpjSchema, stateRegistration: z.string().trim().min(1).max(30),
   address: companyAddressSchema, taxRegime: z.enum(taxRegimes), cscId: z.string().regex(/^\d{1,6}$/),
   cscToken: z.string().min(1).max(100).optional(), nfceSeries: z.number().int().min(1).max(999),
   nextNfceNumber: z.number().int().min(1).max(999_999_999), acceptsCashOnPdv: z.boolean(),

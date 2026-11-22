@@ -179,9 +179,8 @@ export default function SettingsPage() {
                     {input("legalName", "Razão social")}
                     {input("tradeName", "Nome fantasia")}
                     {input("cnpj", "CNPJ", {
-                      numeric: true,
                       maxLength: 14,
-                      help: "Informe somente os 14 dígitos.",
+                      help: "14 posições sem pontuação. Aceita números e o formato alfanumérico; os 2 últimos caracteres são dígitos.",
                     })}
                     {input("stateRegistration", "Inscrição estadual")}
                   </div>

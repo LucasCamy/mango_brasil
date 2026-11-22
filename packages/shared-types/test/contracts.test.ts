@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centsSchema, isUuidV7, orderInputSchema, productInputSchema, shiftCloseInputSchema, signedCentsSchema, uuidV7 } from '../src/index.js';
+import { centsSchema, cnpjSchema, isUuidV7, offlineOrderLineSchema, orderInputSchema, productInputSchema, shiftCloseInputSchema, signedCentsSchema, uuidV7 } from '../src/index.js';
 
 const fiscal = { ncm: '21069090', cest: '', cfop: '5102', origem: 0, cstCsosn: '102', aliquotaIcms: 0, ibsRate: 0.1, cbsRate: 0.9, aliquotaIbpt: 18.45 };
 const baseOrder = () => ({
@@ -13,6 +13,12 @@ const baseProduct = () => ({
 });
 
 describe('shared HTTP contracts', () => {
+  it('preserves numeric and alphanumeric CNPJ formats with numeric final check positions', () => {
+    expect(cnpjSchema.parse('12345678000190')).toBe('12345678000190');
+    expect(cnpjSchema.parse(' 12abc34501de35 ')).toBe('12ABC34501DE35');
+    expect(cnpjSchema.safeParse('12ABC34501DEAB').success).toBe(false);
+    expect(cnpjSchema.safeParse('12.ABC.345/01DE-35').success).toBe(false);
+  });
   it('creates RFC 9562 UUIDv7 identifiers with millisecond timestamp and secure random tail', () => {
     const timestamp = 1_700_000_000_123;
     const ids = Array.from({ length: 1_000 }, () => uuidV7(timestamp));
@@ -77,6 +83,9 @@ describe('shared HTTP contracts', () => {
     const product = { categoryId: uuidV7(), name: 'Produto de teste', description: '', imageUrl: '', basePriceCents: 1_000, active: true, availableInKiosk: true, availableInPdv: true, sizes: [{ name: 'Pequeno', priceModifierCents: -1_001 }], additions: [], fiscal };
     expect(productInputSchema.safeParse(product).success).toBe(false);
     expect(productInputSchema.safeParse({ ...product, sizes: [{ ...product.sizes[0], priceCents: 500 }] }).success).toBe(true);
+  });
+  it('preserves a zero-price item snapshot within an otherwise paid order', () => {
+    expect(offlineOrderLineSchema.parse({ productId: uuidV7(), productName: 'Cortesia', unitPriceCents: 0, quantity: 1, additions: [], totalCents: 0, fiscal }).totalCents).toBe(0);
   });
 
   it.each(['CREDIT_CARD', 'DEBIT_CARD', 'PIX'] as const)('accepts a negative net counted amount for %s after cross-shift refunds', (method) => {
