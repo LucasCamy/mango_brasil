@@ -11,8 +11,9 @@ O projeto é estruturado em monorepo com isolamento de responsabilidades:
 ```text
 totem-pdv-central/
 ├── apps/
-│   ├── central-web/        # Frontend & API de Gestão (React / Next.js ou NestJS / Node)
-│   └── totem-app/          # Kiosk Autoatendimento em Flutter (Android/Linux/Windows)
+│   ├── central-api/        # Fastify, PostgreSQL, worker AMQP e agente ESC/POS
+│   ├── central-web/        # React 19 / Vite / TypeScript strict / shadcn-ui
+│   └── totem_app/          # Kiosk Flutter nativo com SQLite (Android/Linux/Windows)
 ├── packages/
 │   ├── fiscal-engine/      # Motor NFC-e (Certificado A1, XML, SEFAZ, Contingência)
 │   ├── tef-client/         # Camada de comunicação com Pinpad / TEF
@@ -45,3 +46,31 @@ Para trabalho concorrente via **Agent Workbench (Git Worktrees)**:
 2. **Contingência e Idempotência:** Toda transação de pagamento e pedido deve possuir um `idempotency_key` (UUID v7) único para evitar cobranças ou emissões duplicadas em instabilidades de rede.
 3. **Privacidade e LGPD:** Logs de sistema NUNCA devem registrar dados sensíveis de cartões (PAN, CVV, senhas de pinpad).
 4. **Commits e Branches:** Cada agente deve realizar commits atômicos acompanhados de descrição clara antes de solicitar handoff ou merge.
+
+## 4. Comandos reais e validação
+
+- `pnpm install --frozen-lockfile`: dependências; `pnpm dev:env`: gera apenas configuração local ausente.
+- `docker compose up -d postgres redis rabbitmq`: infraestrutura local do projeto.
+- `pnpm db:status`: confere migrations/checksums. Criar SQL em `apps/central-api/migrations`, revisar separadamente e então aplicar com `pnpm db:migrate`. Não editar migrations aplicadas.
+- `pnpm db:seed`: bootstrap pelo ambiente; fixtures só com `ALLOW_DEMO_SEED=true`, fora de produção.
+- `pnpm dev:api`, `pnpm dev:central`, `pnpm worker`, `pnpm print-agent`: processos separados.
+- `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`: build, regras e concorrência em serviços reais.
+- `pnpm --filter @totem-pdv/central-web test`, `pnpm --filter @totem-pdv/central-web contrast`, `pnpm test:e2e`: checkout, contraste e navegador.
+- `pnpm api:openapi`: regenera `packages/shared-types/openapi.json`.
+- No `apps/totem_app`: `flutter pub get`, `flutter analyze`, `flutter test`, `flutter build apk --debug`.
+
+## 5. Invariantes de produção
+
+- Dinheiro em centavos inteiros. Recalcular preços no servidor; snapshots offline só com credencial própria do totem no adaptador simulado.
+- PostgreSQL é a autoridade da idempotência e do caixa. Redis mantém cache/TTL e reduz disputa sem substituir constraints SQL.
+- Ordem de locks de liquidação: turno, pedido, job/linhas de pagamento, lock do pagamento. Revalidar após obter o lock. Reversão e auditoria são atômicas.
+- Turno aberto nunca expõe totais calculados. Gravar quatro declarações antes da conferência; CASH não negativo, líquidos eletrônicos podem incluir estornos negativos.
+- Fila não equivale a impressão. Confirmação 2PC exige comprovante aceito; impressão incerta preserva pendência para conferência explícita sem reenvio físico automático.
+- Auditoria é imutável inclusive por permissão SQL. Senhas/PIN usam Argon2id; CSC é write-only e criptografado; tokens de terminal ficam por hash.
+- Manter `FISCAL_MODE=disabled|sandbox`, `PAYMENT_MODE=simulated`. Sem XML/SEFAZ ou hardware TEF real neste recorte. Futuro adaptador fiscal deve validar XSD antes de transmitir.
+- Erros usam `application/problem+json`: entrada 400, sessão 401, perfil/PIN 403, ausente 404, estado/idempotência 409, invariantes 422, dependências/timeout 503.
+- Tokens visuais em `apps/central-web/src/styles/tokens.css`; sem cores soltas, emojis como ícones ou transições na seleção. O usuário autorizou código direto com validação Playwright.
+
+## 6. Documentação e operação
+
+Mantenha README para execução, OpenAPI para HTTP, `docs/RUNBOOK.md` para recuperação e `docs/adr/NNNN-titulo.md` para decisões duráveis. Consulte ADRs antes de alterar fronteiras, segurança, idempotência ou conciliação. Decisão aceita não significa serviço implantado ou hardware homologado. Resultados temporários pertencem a `docs/VALIDATION.md`.

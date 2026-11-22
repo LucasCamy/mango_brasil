@@ -1,120 +1,120 @@
-# 🍔 Burger Tech — Totem & PDV Central
+# Mango Brasil | Totem e PDV Central
 
-Sistema completo e omnicanal de autoatendimento (Totem Kiosk) e gestão de frente de caixa (PDV Assistido, KDS de Cozinha, Fechamento Cego de Turnos e Motor Fiscal NFC-e), arquitetado em monorepo pnpm para alta performance, robustez e conformidade fiscal.
+Central operacional com PDV assistido, caixa e fechamento cego, cardápio fiscal, produção KDS, usuários, auditoria e monitoramento de terminais. O totem Flutter mantém catálogo e vendas em SQLite e sincroniza por uma outbox durável.
 
----
+O armazenamento em memória foi substituído por PostgreSQL, Redis e RabbitMQ. O pinpad está **simulado**, com autorização, confirmação e reversão persistidas. NFC-e está **desabilitada ou em sandbox**: esta versão não cobra cartões/Pix reais nem emite documento fiscal. Os comprovantes identificam esse estado.
 
-## 🏗️ Arquitetura do Monorepo
+## Organização
 
-```
-totem-pdv-central/
-├── apps/
-│   ├── central-web/        # API REST Node.js + Single Page Application (PDV, KDS, Caixa, NFC-e, Simulador Totem)
-│   ├── totem_app/          # Aplicativo Totem Touch em Flutter (Mobile / Tablet / Desktop Kiosk)
-│   └── cockpit/            # Cockpit Multi-Agente em tempo real (SSE + Pipeline Kanban + Deep Links)
-├── packages/
-│   ├── shared-types/       # Contratos de domínio e interfaces TypeScript compartilhadas
-│   ├── fiscal-engine/      # Motor de emissão de NFC-e (Chave 44 dígitos Módulo 11, QR-Code v2, DANFE)
-│   └── tef-client/         # Cliente de integração TEF (Protocolo Two-Phase Commit 2PC)
-└── pnpm-workspace.yaml     # Configuração do monorepo pnpm
-```
+| Caminho | Responsabilidade |
+|---|---|
+| `apps/central-api` | Fastify/Node, autenticação, transações SQL, worker AMQP e agente ESC/POS |
+| `apps/central-web` | React 19, Vite, TypeScript strict, Tailwind, shadcn/ui e Radix |
+| `apps/totem_app` | Flutter nativo em camadas `ui`, `domain` e `data`; SQLite offline |
+| `packages/shared-types` | DTOs, schemas Zod, UUID v7 e OpenAPI gerado |
+| `packages/tef-client` | Porta de pagamento e simulador 2PC com armazenamento durável injetado |
+| `packages/fiscal-engine` | Porta fiscal e adaptador `disabled/sandbox` |
+| `apps/cockpit` | Ferramenta histórica do MVP, fora do fluxo comercial e do Compose |
 
----
+Valores monetários são inteiros em centavos de BRL. A API recalcula os itens, compara a intenção e valida a autorização. Vendas offline carregam snapshots históricos autenticados pelo terminal. PAN, CVV e PIN de cartão não entram nos contratos ou logs.
 
-## 🚀 Funcionalidades Principais
+## Iniciar localmente
 
-### 1. 🖥️ PDV Assistido & Caixa (Balcão)
-- **Catálogo Interativo:** Seleção rápida por categorias (Burgers, Acompanhamentos, Bebidas, Sobremesas, Combos).
-- **Calculadora de Troco em Tempo Real:** Digitação do valor recebido em dinheiro com cálculo instantâneo do troco e bloqueio em caso de valor insuficiente.
-- **Formas de Pagamento:** Suporte a Dinheiro, Cartão de Crédito/Débito (TEF) e Pix instantâneo.
-- **Despacho Automático:** Pedidos finalizados geram documento fiscal e caem imediatamente na fila da cozinha.
+Requisitos: Node.js 22.12 ou superior, pnpm 11.25 e Docker com Compose. O aplicativo nativo usa Flutter 3.50.1 / Dart 3.14 ou compatíveis.
 
-### 2. 👨‍🍳 KDS (Kitchen Display System — Cozinha)
-- **Fila de Pedidos em Tempo Real:** Atualização automática sem necessidade de recarregar a página.
-- **Esteira de Produção:** Transição de status em 1 clique: `RECEBIDO` ➔ `PREPARANDO` ➔ `PRONTO` ➔ `ENTREGUE`.
-- **Filtros e Contadores:** Métricas de pedidos pendentes, em preparo e finalizados.
-
-### 3. 💰 Gestão de Turnos & Fechamento Cego
-- **Abertura e Fechamento de Caixa:** Controle rigoroso de operador, data/hora e saldo inicial de suprimento.
-- **Fechamento Cego:** O operador informa a contagem física sem ver o saldo do sistema. O sistema calcula e audita automaticamente:
-  - Vendas por forma de pagamento (Dinheiro, Cartão, Pix).
-  - Sangrias e Suprimentos efetuados.
-  - Quebra ou sobra de caixa auditada.
-- **Emissão de Redução Z:** Relatório gerencial consolidado do turno.
-
-### 4. 📜 Motor Fiscal NFC-e Homologado
-- **Chave de Acesso Padrão SEFAZ:** 44 dígitos com algoritmo de validação Módulo 11 (código UF, AAMM, CNPJ, modelo 65, série, número, tipo de emissão, código numérico e DV).
-- **QR-Code Versão 2.0:** Link assinado com parâmetros `chNFe`, `nVersao`, `tpAmb` e `cDest`.
-- **Detalhamento Tributário:** Cálculo de tributos aproximados (IBPT - Federal e Estadual) e DANFE NFC-e visualizável e imprimível.
-
-### 5. 📱 Totem Touchscreen Kiosk (Autoatendimento)
-- **Tela de Atração Dinâmica:** Vídeo promocional/banner de boas-vindas touch.
-- **Personalização de Itens:** Modal para escolha de ponto da carne, pão, molhos e adicionais extras.
-- **Simulador Interativo de Pinpad TEF:** Etapas visuais de transação (Insira o cartão ➔ Processando ➔ Senha ➔ Aprovado).
-- **Animação de Impressão:** Emissão visual do cupom com senha do pedido e DANFE simplificado.
-- **Timer de Inatividade (Safety Kiosk):** Contagem regressiva de 60 segundos com retorno automático para a tela de atração em caso de abandono.
-
-### 6. 🎛️ Cockpit Multi-Agente & Mesa Redonda (`:5050`)
-- **Dashboard Global:** Visualização de múltiplos projetos simultâneos.
-- **Pipeline Kanban:** Esteira de execução com estados `Ideação`, `Planejamento`, `Implementação`, `Revisão QA` e `Deploy`.
-- **Stream de Pensamentos:** Transmissão via Server-Sent Events (SSE) dos raciocínios dos agentes em tempo real.
-- **Deep Links Nativos:** Abertura direta de arquivos no VS Code (`code`) e no Windows Explorer (`explorer.exe`).
-
----
-
-## ⚡ Como Executar Localmente
-
-### Pré-requisitos
-- **Node.js** (v18 ou superior)
-- **pnpm** (`npm install -g pnpm`)
-- **Flutter SDK** (opcional, para compilação nativa do Totem App)
-
-### Instalação de Dependências
-```bash
-# Na raiz do monorepo:
-pnpm install
+```sh
+pnpm install --frozen-lockfile
+pnpm dev:env
+docker compose up -d postgres redis rabbitmq
+pnpm db:status
 ```
 
-### Inicialização dos Serviços
+Revise os SQLs em `apps/central-api/migrations/` e então aplique no banco local:
 
-#### 1. Central Web (PDV, KDS, Caixa e Totem Web)
-```bash
-cd apps/central-web
+```sh
+pnpm db:migrate
+pnpm db:seed
+```
+
+`dev:env` gera `.env` com credenciais aleatórias e não sobrescreve um arquivo existente. O login e PIN do dono estão em `BOOTSTRAP_EMAIL`, `BOOTSTRAP_PASSWORD` e `BOOTSTRAP_PIN`. O seed preserva credenciais existentes. O catálogo fictício só entra em banco vazio com `ALLOW_DEMO_SEED=true`, fora de produção; seus dados fiscais são fixtures, não a classificação fiscal da empresa.
+
+Execute em terminais separados:
+
+```sh
+pnpm dev:api
+pnpm worker
+pnpm print-agent
+pnpm dev:central
+```
+
+Abra [Central Web](http://localhost:5173), escolha `CAIXA-01` e abra um turno antes de vender. `F2` busca produtos, `F4` abre pagamento e `F8` abre movimentações. O operador declara as quatro formas antes de receber a conferência do fechamento. Os líquidos de cartão/Pix podem ser negativos quando há estorno de venda de turno anterior.
+
+O agente local usa `PRINT_TRANSPORT=spool` somente no desenvolvimento: grava ESC/POS e marca **impressão simulada**. Para impressão real configure `PRINT_TRANSPORT=tcp`, `PRINTER_HOST` e `PRINTER_PORT`. Venda eletrônica só entra no KDS após aceitação do comprovante. Falhas conhecidas antes do envio desfazem a autorização; impressão incerta fica pendente para conferência, sem reenvio físico automático.
+
+## Executar com Docker
+
+Depois de revisar as migrations e configurar `.env`:
+
+```sh
+docker compose --profile app build
+docker compose --profile app run --rm migrate
+docker compose --profile app up -d
+```
+
+A Central fica em [localhost:8080](http://localhost:8080). Não mantenha outra API local na porta 4000. Para bootstrap de banco novo sem inserir fixtures:
+
+```sh
+docker compose --profile app --profile setup run --build --rm bootstrap
+```
+
+O profile `printer` adiciona o agente TCP e seu volume de journals:
+
+```sh
+docker compose --profile app --profile printer up -d --build
+```
+
+Configure a impressora antes de ativá-lo. As portas ficam vinculadas ao loopback. Para acesso por domínio, configure um proxy HTTPS e `PUBLIC_WEB_ORIGIN`; mantenha os serviços de dados privados. API, worker e Nginx executam sem root. Segredos são injetados no runtime e não entram na imagem. Credenciais de migration/bootstrap ficam nos serviços de setup; o agente de impressão recebe somente sua credencial e parâmetros de impressora.
+
+## Totem nativo
+
+Siga [a instalação Flutter](apps/totem_app/README.md). Use uma credencial individual de terminal. Android debug permite HTTP local; distribuição exige HTTPS e assinatura própria.
+
+O primeiro catálogo precisa ser sincronizado antes de operar offline. Depois disso, uma falha de rede não bloqueia o atendimento: o aplicativo persiste a intenção, tenta a Central por até três segundos, imprime a senha central ou de contingência e sincroniza em segundo plano com as mesmas chaves. `202` significa recebido na fila; a venda só sai da outbox após confirmação consultada na Central.
+
+## Verificar
+
+```sh
 pnpm build
-node dist/server.js
-# Servidor disponível em: http://localhost:4000
-```
-- **PDV & Gestão:** [http://localhost:4000/](http://localhost:4000/)
-- **Totem Kiosk Touch:** [http://localhost:4000/totem](http://localhost:4000/totem)
-
-#### 2. Cockpit Multi-Projeto (Orquestração & Visualização)
-```bash
-cd apps/cockpit
-node server.js
-# Cockpit disponível em: http://localhost:5050
+pnpm typecheck
+pnpm test
+pnpm test:integration
+pnpm --filter @totem-pdv/central-web test
+pnpm --filter @totem-pdv/central-web contrast
+pnpm test:e2e
+pnpm api:openapi
 ```
 
-#### 3. Totem Flutter App (Opcional - Desktop / Tablet)
-```bash
+Os testes integrados criam e removem apenas um banco e um vhost temporários próprios nos serviços Docker locais, sem limpar tabelas da loja. Precisam do `.env` de desenvolvimento e de PostgreSQL, Redis e RabbitMQ management na porta 15679. Playwright precisa da API, worker, Web e Chromium (`pnpm --filter @totem-pdv/central-web exec playwright install chromium`).
+
+```sh
 cd apps/totem_app
-flutter pub get
-flutter run -d chrome # ou -d windows
+flutter analyze
+flutter test
+flutter build apk --debug
 ```
 
----
+Resultados executados e limites de homologação estão em [VALIDATION.md](docs/VALIDATION.md). Um build não substitui o ensaio com impressora e terminal da loja.
 
-## 🛠️ Stack Tecnológica
+## Documentação
 
-| Camada | Tecnologias |
-| :--- | :--- |
-| **Monorepo** | pnpm Workspaces, TypeScript |
-| **Backend & APIs** | Node.js, Express, Server-Sent Events (SSE), SQLite/Memory Store |
-| **Frontend Web** | HTML5 Semântico, CSS3 Moderno (Glassmorphism & Dracula Dark), Vanilla JS modular |
-| **Totem Mobile/Desktop** | Flutter 3.x, Dart 3, Material 3, Clean Architecture |
-| **Motor Fiscal** | Cálculo Módulo 11 SEFAZ, QR-Code v2, DANFE NFC-e |
-| **Orquestração Multi-Agente** | Google Antigravity, Claude Code, OpenAI Codex, Orchestra Board |
+- [OpenAPI](packages/shared-types/openapi.json), também na [API local](http://localhost:4000/api/openapi.json).
+- [Runbook de operação e recuperação](docs/RUNBOOK.md).
+- [ADR-001: idempotência e outboxes](docs/adr/0001-idempotencia-outbox-offline.md).
+- [ADR-002: fiscal e pinpad por portas](docs/adr/0002-portas-fiscal-pagamento.md).
+- [ADR-003: Central transacional](docs/adr/0003-central-transacional.md).
+- [Sistema visual e contraste](DESIGN.md).
+- [Regras de engenharia](AGENTS.md).
 
----
+O [agent-project-kit](https://github.com/LucasCamy/agent-project-kit) orientou a implementação. `docs/MVP.md` é histórico. Emissão fiscal real, SDK proprietário de pinpad e assinatura de release Android dependem dos respectivos adaptadores e credenciais.
 
-## 📄 Licença
-Distribuído sob licença proprietária para uso no projeto **Burger Tech / Mango Brasil**.
+Licença proprietária do projeto Mango Brasil.
