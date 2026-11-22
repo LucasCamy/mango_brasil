@@ -1,5 +1,7 @@
 # Especificação do MVP - Sistema Totem Autoatendimento & PDV Central
 
+> Documento histórico. A implementação atual e os limites fiscal/TEF estão no README, OpenAPI e ADRs. Este texto não comprova emissão fiscal real ou integração proprietária.
+
 ## 1. Visão Geral
 Sistema comercial completo composto por:
 1. **Central Web**: Gestão de cadastros, caixas, fechamento de turnos, fila de produção (KDS), motor fiscal NFC-e e retaguarda de totens.

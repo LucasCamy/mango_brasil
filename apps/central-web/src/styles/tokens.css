@@ -1,0 +1,69 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f4ef;
+  --surface: #ffffff;
+  --subtle: #eeece6;
+  --selected: #e4eee9;
+  --night: #152920;
+  --ink: #172b25;
+  --muted: #52625b;
+  --line: #6b7e72;
+  --action: #215b48;
+  --on-action: #ffffff;
+  --on-night: #f5f7f3;
+  --focus: #215b48;
+  --success: #216046;
+  --warning: #765000;
+  --destructive: #a12936;
+  --shadow: 0 6px 24px rgb(23 43 37 / 0.07);
+  --font-display: "Space Grotesk", sans-serif;
+  --font-ui: "DM Sans", sans-serif;
+  --font-data: "JetBrains Mono", monospace;
+  --radius: 0.6rem;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-press: 120ms;
+  --duration-exit: 180ms;
+  --duration-enter: 280ms;
+}
+.dark {
+  color-scheme: dark;
+  --bg: #111b17;
+  --surface: #18261f;
+  --subtle: #203128;
+  --selected: #293e32;
+  --night: #0a100d;
+  --ink: #eef3ec;
+  --muted: #bccbbe;
+  --line: #84998a;
+  --action: #b4dcad;
+  --on-action: #122218;
+  --on-night: #f5f7f3;
+  --focus: #b4dcad;
+  --success: #a9dab5;
+  --warning: #efd69c;
+  --destructive: #f4b4b9;
+  --shadow: none;
+}
+
+/* shadcn semantic aliases. Components never own palette values. */
+:root,
+.dark {
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--action);
+  --primary-foreground: var(--on-action);
+  --secondary: var(--subtle);
+  --secondary-foreground: var(--ink);
+  --muted-foreground: var(--muted);
+  --accent: var(--selected);
+  --accent-foreground: var(--ink);
+  --destructive-foreground: var(--on-action);
+  --border: color-mix(in srgb, var(--ink) 16%, var(--surface));
+  --input: var(--line);
+  --ring: var(--focus);
+}

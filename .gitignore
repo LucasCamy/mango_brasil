@@ -19,6 +19,13 @@ build/
 # Environment & logs
 .env
 .env.local
+.env.*.local
+.local/
+coverage/
+playwright-report/
+test-results/
+test-report/
+.validation/
 *.log
 npm-debug.log*
 pnpm-debug.log*
