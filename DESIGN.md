@@ -16,6 +16,8 @@ Sidebar a partir de 1024 px; abaixo disso, navegação inferior com quatro açõ
 
 Estados em branco, carregamento com Skeleton, erro inline e tentativa novamente existem nos módulos. Erros de campos usam `aria-invalid` e `role="alert"`. O checkout mantém a mesma chave idempotente após falha de rede e recupera a venda por chave antes de tentar novamente. Sangrias e suprimentos preservam a intenção por operador e turno antes do PIN, bloqueiam sua edição e permitem conferir a mesma chave após reload ou fechamento do turno, evitando duplicação por resposta perdida; PINs e tokens não são persistidos. O fechamento não oferece totais esperados antes de gravar os valores declarados.
 
+A desistência consulta a autorização existente por chave em uma operação somente de leitura. Uma autorização ausente encerra a intenção sem iniciar pagamento; falhas de consulta mantêm a pendência para conferência.
+
 Não há animação em seleção de aba, menu ou categoria. Botões têm resposta de pressão em 120 ms. Entradas de modal usam até 280 ms e saídas 180 ms. `prefers-reduced-motion` remove o movimento, preservando os estados finais. O padrão é uma ferramenta de trabalho de uso repetido: navegação e atalhos respondem imediatamente.
 
 ## Contraste WCAG AA calculado
@@ -61,7 +63,7 @@ O script `pnpm --filter @totem-pdv/central-web contrast` lê os valores reais de
 Em 21/11/2026, foram executados com sucesso:
 
 - `pnpm --filter @totem-pdv/central-web build`: TypeScript strict e build Vite.
-- `pnpm --filter @totem-pdv/central-web test`: 12 testes de cálculo em centavos, opções e recuperação idempotente de checkout e movimentações de caixa.
+- `pnpm --filter @totem-pdv/central-web test`: 15 testes de cálculo em centavos, opções, recuperação idempotente de checkout e caixa e desistência sem iniciar novas autorizações.
 - `pnpm --filter @totem-pdv/central-web contrast`: todos os 48 pares de texto e 12 pares de controles aprovados.
 - `pnpm --filter @totem-pdv/central-web test:e2e`: 8 testes Playwright contra PostgreSQL/Redis/RabbitMQ e a API local, sem mocks HTTP, em 35,1 s na rodada final.
 

@@ -45,6 +45,8 @@ export const central = {
   catalog: () => api<CatalogDTO>("/catalog"),
   authorize: (input: PaymentAuthorizeInput) =>
     post<PaymentTransaction>("/payments/authorize", input),
+  paymentByKey: (key: string) =>
+    api<PaymentTransaction>(`/payments/by-key/${encodeURIComponent(key)}`),
   reverseAuthorization: (transactionId: string, reason: string) =>
     post<PaymentTransaction>(
       `/payments/${encodeURIComponent(transactionId)}/reverse`,

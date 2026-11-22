@@ -13,6 +13,7 @@ vi.mock("./services", () => ({
   central: {
     orderByKey: vi.fn(),
     authorize: vi.fn(),
+    paymentByKey: vi.fn(),
     createOrder: vi.fn(),
     reverseAuthorization: vi.fn(),
   },
@@ -104,5 +105,53 @@ describe("recuperação do checkout", () => {
     expect(attempt).toThrow("Já existe uma tentativa");
     expect(pendingAttempt("actor")?.orderKey).toBe(original.orderKey);
     expect(central.authorize).not.toHaveBeenCalled();
+  });
+  it("desiste de uma intenção sem pagamento sem autorizar ou estornar", async () => {
+    vi.mocked(central.orderByKey).mockRejectedValue(missing());
+    vi.mocked(central.paymentByKey).mockRejectedValue(missing());
+    const current = attempt();
+    expect(await abandonAttempt(current)).toBeNull();
+    expect(central.paymentByKey).toHaveBeenCalledWith(current.paymentKey);
+    expect(central.authorize).not.toHaveBeenCalled();
+    expect(central.reverseAuthorization).not.toHaveBeenCalled();
+    expect(pendingAttempt("actor")).toBeNull();
+  });
+  it("desfaz a autorização de resposta perdida por consulta sem iniciar outra", async () => {
+    vi.mocked(central.orderByKey).mockRejectedValue(missing());
+    vi.mocked(central.authorize).mockRejectedValue(
+      new TypeError("Resposta perdida"),
+    );
+    vi.mocked(central.paymentByKey).mockResolvedValue({
+      id: "authorized-before-timeout",
+      status: "AUTHORIZED",
+    } as Awaited<ReturnType<typeof central.paymentByKey>>);
+    vi.mocked(central.reverseAuthorization).mockResolvedValue({
+      status: "REVERSED",
+    } as Awaited<ReturnType<typeof central.reverseAuthorization>>);
+    const current = attempt();
+    await expect(submitAttempt(current, () => undefined)).rejects.toThrow(
+      "Resposta perdida",
+    );
+    expect(await abandonAttempt(pendingAttempt("actor")!)).toBeNull();
+    expect(central.authorize).toHaveBeenCalledTimes(1);
+    expect(central.reverseAuthorization).toHaveBeenCalledTimes(1);
+    expect(central.reverseAuthorization).toHaveBeenCalledWith(
+      "authorized-before-timeout",
+      expect.any(String),
+    );
+    expect(pendingAttempt("actor")).toBeNull();
+  });
+  it("preserva intenção se a consulta do pagamento falhar e não faz estorno", async () => {
+    vi.mocked(central.orderByKey).mockRejectedValue(missing());
+    vi.mocked(central.paymentByKey).mockRejectedValue(
+      new TypeError("Consulta indisponível"),
+    );
+    const current = attempt();
+    await expect(abandonAttempt(current)).rejects.toThrow(
+      "Consulta indisponível",
+    );
+    expect(central.authorize).not.toHaveBeenCalled();
+    expect(central.reverseAuthorization).not.toHaveBeenCalled();
+    expect(pendingAttempt("actor")?.orderKey).toBe(current.orderKey);
   });
 });

@@ -124,20 +124,18 @@ export async function abandonAttempt(
       throw cause;
   }
   if (attempt.method !== "CASH") {
-    // An interrupted authorize call may have completed; retrieve by the original key.
-    const payment = attempt.transactionId
-      ? null
-      : await central.authorize({
-          idempotencyKey: attempt.paymentKey,
-          terminalId: attempt.terminalId,
-          method: attempt.method as ElectronicPaymentMethod,
-          amountCents: attempt.amountCents,
-        });
-    const transactionId = attempt.transactionId ?? payment?.id;
-    if (!transactionId)
-      throw new Error(
-        "Não foi possível localizar a autorização para desfazimento.",
-      );
+    let transactionId = attempt.transactionId;
+    if (!transactionId) {
+      // Abandonment only reads the original key; it must never start a payment.
+      try {
+        transactionId = (await central.paymentByKey(attempt.paymentKey)).id;
+      } catch (cause) {
+        if (!(cause instanceof ApiError && cause.problem.status === 404))
+          throw cause;
+        forgetAttempt(attempt.actorId);
+        return null;
+      }
+    }
     await central.reverseAuthorization(
       transactionId,
       "Desistência do checkout antes da gravação do pedido",
