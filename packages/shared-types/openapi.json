@@ -1442,6 +1442,127 @@
         }
       }
     },
+    "/api/payments/by-key/{key}": {
+      "get": {
+        "operationId": "get_api_payments_by_key_key",
+        "tags": [
+          "Pagamentos"
+        ],
+        "summary": "Consultar autorização existente pela chave da intenção",
+        "description": "Consulta somente leitura para recuperação ou abandono de uma tentativa. Retorna 404 quando a intenção não possui autorização persistida; nunca inicia uma transação nem aciona o terminal. Verifica o proprietário ou a credencial do próprio terminal.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          },
+          {
+            "terminalToken": []
+          }
+        ],
+        "x-roles": [
+          "OWNER",
+          "MANAGER",
+          "CASHIER",
+          "TERMINAL"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentTransaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Entrada, referência ou formato inválido; errors identifica campos quando aplicável.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, inválida, revogada ou expirada.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Perfil, terminal, proprietário do recurso ou autorização de supervisor não permite esta ação.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Registro solicitado não encontrado.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de requisições, conexões SSE ou tentativas de credenciais atingido.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Falha interna; efeitos incertos devem ser consultados usando as mesmas chaves.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependência indisponível, timeout, deadlock ou conflito transacional; reenvie a mesma intenção.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/payments/{id}": {
       "get": {
         "operationId": "get_api_payments_id",
@@ -6422,7 +6543,7 @@
                     },
                     "totalCents": {
                       "type": "integer",
-                      "minimum": 1,
+                      "minimum": 0,
                       "maximum": 999999999
                     },
                     "fiscal": {
@@ -6664,7 +6785,7 @@
           },
           "cnpj": {
             "type": "string",
-            "pattern": "^\\d{14}$"
+            "pattern": "^[A-Z0-9]{12}\\d{2}$"
           },
           "stateRegistration": {
             "type": "string",
@@ -7448,7 +7569,7 @@
                     },
                     "totalCents": {
                       "type": "integer",
-                      "minimum": 1,
+                      "minimum": 0,
                       "maximum": 999999999
                     },
                     "fiscal": {

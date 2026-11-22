@@ -77,7 +77,7 @@ describe('published OpenAPI contract', () => {
   });
 
   it('restricts terminal, print-agent and supervisor credentials to their actual routes', () => {
-    const terminalRoutes = new Set(['get /api/catalog', 'post /api/payments/authorize', 'get /api/payments/{id}', 'post /api/payments/{id}/reverse', 'post /api/orders', 'get /api/orders/by-key/{key}', 'post /api/orders/by-key/{key}/receipt', 'post /api/offline-sync', 'get /api/settings', 'post /api/terminals/{id}/heartbeat']);
+    const terminalRoutes = new Set(['get /api/catalog', 'post /api/payments/authorize', 'get /api/payments/by-key/{key}', 'get /api/payments/{id}', 'post /api/payments/{id}/reverse', 'post /api/orders', 'get /api/orders/by-key/{key}', 'post /api/orders/by-key/{key}/receipt', 'post /api/offline-sync', 'get /api/settings', 'post /api/terminals/{id}/heartbeat']);
     const supervisorRoutes = new Set(['post /api/orders/{id}/cancel', 'post /api/shifts/{id}/movements', 'post /api/shifts/{id}/close']);
     for (const { path, method, operation } of operations) {
       const key = `${method} ${path}`;
@@ -87,6 +87,10 @@ describe('published OpenAPI contract', () => {
     }
     expect(specification.paths['/api/auth/login'].post.security).toEqual([]);
     expect(specification.paths['/api/users'].post['x-roles']).toEqual(['OWNER']);
+    const lookup = specification.paths['/api/payments/by-key/{key}'].get;
+    expect(lookup.requestBody).toBeUndefined();
+    expect(lookup.responses['200'].content['application/json'].schema.$ref).toBe('#/components/schemas/PaymentTransaction');
+    expect(lookup.parameters[0].schema.pattern).toContain('-7[');
   });
 
   it('exposes a complete production projection with no financial or fiscal data at any depth', () => {

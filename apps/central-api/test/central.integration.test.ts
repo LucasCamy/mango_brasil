@@ -14,7 +14,7 @@ import { connectBroker,publishConfirmed } from '../src/broker.js';
 const env=parseEnv(await readFile(new URL('../../../.env',import.meta.url),'utf8'));
 const testDbName=`totem_test_${process.pid}_${randomBytes(4).toString('hex')}`;
 const maintenance=new pg.Pool({connectionString:env.MIGRATION_DATABASE_URL});
-let runtime:Awaited<ReturnType<typeof createApp>>,config:Config,ownerCookie:string,cashierCookie:string,otherCookie:string;
+let runtime:Awaited<ReturnType<typeof createApp>>,config:Config,ownerCookie:string,cashierCookie:string,otherCookie:string,serverBase:string;
 const ownerId=uuidV7(),cashierId=uuidV7(),otherId=uuidV7(),categoryId=uuidV7(),productId=uuidV7(),sizeId=uuidV7(),additionId=uuidV7();
 const testPassword='Test-only-secret-2026',testPin='783921',ownerEmail=`owner-${testDbName}@example.test`;
 const terminalToken=randomBytes(32).toString('hex'),otherTerminalToken=randomBytes(32).toString('hex');
@@ -51,6 +51,7 @@ beforeAll(async()=>{
  const appUrl=new URL(env.DATABASE_URL!);appUrl.pathname=`/${testDbName}`;const redisUrl=new URL(env.REDIS_URL!);redisUrl.pathname='/15';
  config=loadConfig({...env,NODE_ENV:'test',DATABASE_URL:appUrl.href,REDIS_URL:redisUrl.href,PRINT_AGENT_TOKEN:agentToken,WEB_ORIGIN:'http://localhost:5173'});
  runtime=await createApp(config);
+ serverBase=await runtime.app.listen({port:0,host:'127.0.0.1'});
  await runtime.realtime.redis.del('catalog:v1');
  async function login(email:string){const r=await runtime.app.inject({method:'POST',url:'/api/auth/login',payload:{email,password:testPassword}});expect(r.statusCode,r.body).toBe(200);return String(r.headers['set-cookie']).split(';')[0]!;}
  ownerCookie=await login(ownerEmail);cashierCookie=await login(`cashier-${testDbName}@example.test`);otherCookie=await login(`other-${testDbName}@example.test`);
@@ -84,6 +85,22 @@ describe('API Central com PostgreSQL e Redis reais',()=>{
   const key=uuidV7();const a=await runtime.app.inject({method:'POST',url:'/api/payments/authorize',headers:cookieHeaders(cashierCookie),payload:{idempotencyKey:key,terminalId,method:'PIX',amountCents:3800}});expect(a.statusCode,a.body).toBe(200);
   expect((await runtime.app.inject({url:`/api/payments/${a.json().id}`,headers:cookieHeaders(otherCookie)})).statusCode).toBe(403);
   expect((await runtime.app.inject({method:'POST',url:`/api/payments/${a.json().id}/reverse`,headers:cookieHeaders(otherCookie),payload:{reason:'Tentativa por outro operador'}})).statusCode).toBe(403);
+ });
+ it('consulta pagamento por chave sem autorizar e respeita proprietário e terminal',async()=>{
+  const before=(await runtime.db.query('SELECT count(*)::int AS total FROM payment_transactions')).rows[0]!.total;
+  const missingKey=uuidV7();
+  const missing=await runtime.app.inject({url:`/api/payments/by-key/${missingKey}`,headers:cookieHeaders()});expect(missing.statusCode,missing.body).toBe(404);
+  const invalid=await runtime.app.inject({url:'/api/payments/by-key/00000000-0000-4000-8000-000000000000',headers:cookieHeaders()});expect(invalid.statusCode,invalid.body).toBe(400);
+  expect((await runtime.db.query('SELECT count(*)::int AS total FROM payment_transactions')).rows[0]!.total).toBe(before);
+  const terminalId=await terminal();await openShift(terminalId,10000,cashierCookie);const key=uuidV7();
+  const authorized=await runtime.app.inject({method:'POST',url:'/api/payments/authorize',headers:cookieHeaders(cashierCookie),payload:{idempotencyKey:key,terminalId,method:'PIX',amountCents:3800}});expect(authorized.statusCode,authorized.body).toBe(200);
+  const own=await runtime.app.inject({url:`/api/payments/by-key/${key}`,headers:cookieHeaders(cashierCookie)});expect(own.statusCode,own.body).toBe(200);expect(own.json()).toEqual(authorized.json());
+  expect((await runtime.app.inject({url:`/api/payments/by-key/${key}`,headers:cookieHeaders(otherCookie)})).statusCode).toBe(403);
+  expect((await runtime.app.inject({url:`/api/payments/by-key/${key}`,headers:terminalHeaders})).statusCode).toBe(403);
+  const kioskKey=uuidV7();const kioskAuthorized=await runtime.app.inject({method:'POST',url:'/api/payments/authorize',headers:terminalHeaders,payload:{idempotencyKey:kioskKey,terminalId:'TEST-TOTEM',method:'DEBIT_CARD',amountCents:1500}});expect(kioskAuthorized.statusCode,kioskAuthorized.body).toBe(200);
+  const kioskOwn=await runtime.app.inject({url:`/api/payments/by-key/${kioskKey}`,headers:terminalHeaders});expect(kioskOwn.statusCode,kioskOwn.body).toBe(200);expect(kioskOwn.json().id).toBe(kioskAuthorized.json().id);
+  expect((await runtime.app.inject({url:`/api/payments/by-key/${kioskKey}`,headers:{authorization:`Bearer ${otherTerminalToken}`}})).statusCode).toBe(403);
+  expect((await runtime.db.query('SELECT count(*)::int AS total FROM payment_transactions')).rows[0]!.total).toBe(before+2);
  });
  it('valida tamanho, limites de adicionais e dinheiro insuficiente antes de qualquer venda',async()=>{
   const terminalId=await terminal();await openShift(terminalId);const b=cashOrder(terminalId);b.payment.amountTenderedCents=100;
@@ -209,14 +226,33 @@ describe('API Central com PostgreSQL e Redis reais',()=>{
   await runtime.app.inject({method:'PATCH',url:`/api/products/${productId}/availability`,headers:cookieHeaders(),payload:{active:true}});
  });
  it('protege CSC e impede atualização de auditoria pelo usuário da aplicação',async()=>{
-  const secret='CSC_TEST_DO_NOT_LOG';const b={legalName:'Empresa de teste',tradeName:'Teste',cnpj:'00000000000000',stateRegistration:'TESTE',address:{street:'Rua de teste',number:'1',complement:'',neighborhood:'Centro',city:'Cuiabá',state:'MT',postalCode:'78000000',ibgeCityCode:'5103403'},taxRegime:'SIMPLES_NACIONAL',cscId:'1',cscToken:secret,nfceSeries:1,nextNfceNumber:1,acceptsCashOnPdv:true,inactivityTimeoutSeconds:45};
+  const secret='CSC_TEST_DO_NOT_LOG';const b={legalName:'Empresa de teste',tradeName:'Teste',cnpj:'12ABC34501DE35',stateRegistration:'TESTE',address:{street:'Rua de teste',number:'1',complement:'',neighborhood:'Centro',city:'Cuiabá',state:'MT',postalCode:'78000000',ibgeCityCode:'5103403'},taxRegime:'SIMPLES_NACIONAL',cscId:'1',cscToken:secret,nfceSeries:1,nextNfceNumber:1,acceptsCashOnPdv:true,inactivityTimeoutSeconds:45};
   const saved=await runtime.app.inject({method:'PATCH',url:'/api/settings',headers:cookieHeaders(),payload:b});expect(saved.statusCode,saved.body).toBe(200);expect(saved.body).not.toContain(secret);expect(saved.json().cscTokenConfigured).toBe(true);
+  expect(saved.json().cnpj).toBe('12ABC34501DE35');
   const log=await runtime.app.inject({url:'/api/audit-logs?pageSize=100',headers:cookieHeaders()});expect(log.body).not.toContain(secret);expect(log.body).not.toMatch(/password_hash|supervisor_pin_hash/);
   const encrypted=(await runtime.db.query('SELECT csc_token_encrypted FROM company_settings WHERE id=1')).rows[0]!.csc_token_encrypted;expect(encrypted).not.toContain(secret);
   await expect(runtime.db.query("UPDATE audit_logs SET reason='Mutação proibida' WHERE id=(SELECT id FROM audit_logs LIMIT 1)")).rejects.toMatchObject({code:'42501'});
  });
  it('SSE entrega invalidação real e libera conexão ao desconectar',async()=>{
-  const address=await runtime.app.listen({port:0,host:'127.0.0.1'});const stop=new AbortController();const response=await fetch(address+'/api/events',{headers:{cookie:ownerCookie},signal:stop.signal});expect(response.status).toBe(200);const reader=response.body!.getReader();await reader.read();await runtime.realtime.publish({type:'catalog.updated',resourceId:'test-event'});const chunk=await reader.read();expect(Buffer.from(chunk.value!).toString()).toContain('event: update');stop.abort();await reader.cancel().catch(()=>{});
+  const stop=new AbortController();const response=await fetch(serverBase+'/api/events',{headers:{cookie:ownerCookie},signal:stop.signal});expect(response.status).toBe(200);const reader=response.body!.getReader();await reader.read();await runtime.realtime.publish({type:'catalog.updated',resourceId:'test-event'});const chunk=await reader.read();expect(Buffer.from(chunk.value!).toString()).toContain('event: update');stop.abort();await reader.cancel().catch(()=>{});
+ });
+ it('POST por HTTP real não confunde corpo concluído com desconexão do cliente',async()=>{
+  const address=runtime.app.server.address();if(!address||typeof address==='string')throw Error('Servidor de teste não está escutando.');const base=`http://127.0.0.1:${address.port}`;
+  const terminalId=`WIRE-${randomBytes(4).toString('hex')}`,headers={cookie:ownerCookie,'content-type':'application/json'};
+  const created=await fetch(base+'/api/terminals',{method:'POST',headers,body:JSON.stringify({id:terminalId,name:'Transporte HTTP real',type:'PDV'})});expect(created.status,await created.text()).toBe(201);
+  const opened=await fetch(base+'/api/shifts/open',{method:'POST',headers,body:JSON.stringify({terminalId,initialCashCents:10000})});expect(opened.status,await opened.text()).toBe(201);
+  const order=await fetch(base+'/api/orders',{method:'POST',headers,body:JSON.stringify(cashOrder(terminalId))});const body=await order.json();expect(order.status,JSON.stringify(body)).toBe(201);expect(body.payments[0].status).toBe('CONFIRMED');
+ });
+ it('desconexão HTTP real interrompe a transação e permite repetir a mesma intenção',async()=>{
+  const terminalId=await terminal(),shift=await openShift(terminalId),body=cashOrder(terminalId),stop=new AbortController(),locker=await runtime.db.pool.connect();
+  await locker.query('BEGIN');await locker.query('SELECT id FROM shifts WHERE id=$1 FOR UPDATE',[shift]);
+  const sent=fetch(serverBase+'/api/orders',{method:'POST',headers:{cookie:ownerCookie,'content-type':'application/json'},body:JSON.stringify(body),signal:stop.signal}).catch(()=>undefined);
+  try{
+   await waitUntil(async()=>Boolean((await runtime.db.query("SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND application_name='totem-central' AND wait_event_type='Lock' AND query LIKE '%FROM shifts%FOR UPDATE%' LIMIT 1")).rowCount),3000);
+   stop.abort();await sent;
+  }finally{await locker.query('ROLLBACK');locker.release();}
+  await runtime.db.transaction(async client=>{await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[body.idempotencyKey]);expect((await client.query('SELECT 1 FROM orders WHERE idempotency_key=$1',[body.idempotencyKey])).rowCount).toBe(0);});
+  const retry=await fetch(serverBase+'/api/orders',{method:'POST',headers:{cookie:ownerCookie,'content-type':'application/json'},body:JSON.stringify(body)});expect(retry.status,await retry.text()).toBe(201);
  });
 });
 

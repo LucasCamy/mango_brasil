@@ -1,5 +1,5 @@
 import { PaymentGatewayError,SimulatedPinpadAdapter,type PaymentTransactionStore } from '@totem-pdv/tef-client';
-import { paymentAuthorizeInputSchema,reasonSchema,uuidV7,type PaymentState,type PaymentTransaction } from '@totem-pdv/shared-types';
+import { paymentAuthorizeInputSchema,reasonSchema,uuidV7,uuidV7Schema,type PaymentState,type PaymentTransaction } from '@totem-pdv/shared-types';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Database,DbClient } from './db.js';
@@ -38,6 +38,13 @@ export function registerPayments(app:FastifyInstance,db:Database,auth:Auth){
    }
    const previous=(await db.query('SELECT id FROM payment_transactions WHERE idempotency_key=$1',[b.idempotencyKey])).rows[0];if(previous)await assertPaymentAccess(db.pool,request.actor,String(previous.id));
    return gateway(db.pool,250,request.actor.role==='TERMINAL'?undefined:request.actor.id).authorize(b,{signal:request.abortSignal});
+ });
+ app.get('/api/payments/by-key/:key',{preHandler:auth.require(['OWNER','MANAGER','CASHIER','TERMINAL'])},async request=>{
+   const {key}=z.object({key:uuidV7Schema}).parse(request.params);
+   const result=await new PgPaymentTransactionStore(db.pool).findByIdempotencyKey(key);
+   if(!result)throw notFound('Pagamento não encontrado para esta intenção.');
+   await assertPaymentAccess(db.pool,request.actor,result.id);
+   return result;
  });
  app.get('/api/payments/:id',{preHandler:auth.require(['OWNER','MANAGER','CASHIER','TERMINAL'])},async request=>{
    const {id}=z.object({id:z.string().uuid()}).parse(request.params);await assertPaymentAccess(db.pool,request.actor,id);const result=await new PgPaymentTransactionStore(db.pool).get(id);if(!result)throw notFound();return result;
