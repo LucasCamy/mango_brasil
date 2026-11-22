@@ -14,7 +14,7 @@ A fonte dos componentes é o registry oficial shadcn/ui `new-york`, sobre primit
 
 Sidebar a partir de 1024 px; abaixo disso, navegação inferior com quatro ações e menu de módulos. Painéis do PDV recompõem em coluna em telas estreitas, com uma barra fixa de pagamento quando há itens. Tabelas viram listas até 1279 px para acomodar o conteúdo real em tablets. Inputs usam pelo menos 16 px. F2 abre busca de produtos, F4 abre pagamento e F8 abre movimentações. Dialog, Sheet e AlertDialog devolvem o foco ao elemento que iniciou a operação ao fechar por Esc.
 
-Estados em branco, carregamento com Skeleton, erro inline e tentativa novamente existem nos módulos. Erros de campos usam `aria-invalid` e `role="alert"`. O checkout mantém a mesma chave idempotente após falha de rede e recupera a venda por chave antes de tentar novamente. O fechamento não oferece totais esperados antes de gravar os valores declarados.
+Estados em branco, carregamento com Skeleton, erro inline e tentativa novamente existem nos módulos. Erros de campos usam `aria-invalid` e `role="alert"`. O checkout mantém a mesma chave idempotente após falha de rede e recupera a venda por chave antes de tentar novamente. Sangrias e suprimentos preservam a intenção por operador e turno antes do PIN, bloqueiam sua edição e permitem conferir a mesma chave após reload ou fechamento do turno, evitando duplicação por resposta perdida; PINs e tokens não são persistidos. O fechamento não oferece totais esperados antes de gravar os valores declarados.
 
 Não há animação em seleção de aba, menu ou categoria. Botões têm resposta de pressão em 120 ms. Entradas de modal usam até 280 ms e saídas 180 ms. `prefers-reduced-motion` remove o movimento, preservando os estados finais. O padrão é uma ferramenta de trabalho de uso repetido: navegação e atalhos respondem imediatamente.
 
@@ -61,7 +61,7 @@ O script `pnpm --filter @totem-pdv/central-web contrast` lê os valores reais de
 Em 21/11/2026, foram executados com sucesso:
 
 - `pnpm --filter @totem-pdv/central-web build`: TypeScript strict e build Vite.
-- `pnpm --filter @totem-pdv/central-web test`: 9 testes de cálculo em centavos, opções e recuperação idempotente de checkout.
+- `pnpm --filter @totem-pdv/central-web test`: 12 testes de cálculo em centavos, opções e recuperação idempotente de checkout e movimentações de caixa.
 - `pnpm --filter @totem-pdv/central-web contrast`: todos os 48 pares de texto e 12 pares de controles aprovados.
 - `pnpm --filter @totem-pdv/central-web test:e2e`: 8 testes Playwright contra PostgreSQL/Redis/RabbitMQ e a API local, sem mocks HTTP, em 35,1 s na rodada final.
 
@@ -72,6 +72,8 @@ Crédito, débito e Pix foram validados com autorização no simulador, persist�
 Foram inspecionadas as capturas reais. Exemplos locais: `apps/central-web/test-results/pdv-360-light.png`, `apps/central-web/test-results/pdv-1280-dark.png`, `apps/central-web/test-results/caixa-768-light.png`. A suíte também gera capturas do KDS e configurações. Os arquivos são ignorados pelo Git; podem ser recriados com o comando E2E. O relatório HTML fica em `apps/central-web/test-report/index.html`. Traces estão desativados e a autenticação dos testes ocorre em contexto HTTP separado para não gravar credenciais nos snapshots de tela.
 
 O detector mecânico Impeccable foi executado sobre as mudanças e retornou `[]`. A conferência estática também não encontrou hex solto, classes de paleta padrão, `transition-all`, `transition-colors`, emojis como ícones ou travessões longos nos componentes.
+
+A recuperação de caixa foi revalidada no Docker em `NODE_ENV=production`, em `http://localhost:8080`: dois casos E2E passaram em 10,7 s, incluindo perda proposital da resposta após commit real, reload, turno já fechado e repetição da chave com apenas um lançamento no razão.
 
 ## Referências
 

@@ -13,6 +13,7 @@ import type {
   CatalogDTO,
   OrderDTO,
   ShiftReport,
+  CashMovement,
 } from "@totem-pdv/shared-types";
 
 const localEnvPath = fileURLToPath(new URL("../../../.env", import.meta.url));
@@ -57,6 +58,7 @@ async function approve(page: Page) {
   await approval
     .getByLabel("PIN do supervisor")
     .fill(localEnv.BOOTSTRAP_PIN ?? "");
+  let granted = false;
   try {
     const [response] = await Promise.all([
       page.waitForResponse((value) =>
@@ -66,9 +68,12 @@ async function approve(page: Page) {
         .getByRole("button", { name: "Autorizar operação", exact: true })
         .click(),
     ]);
+    granted = response.status() === 200;
     expect(response.status()).toBe(200);
   } finally {
-    if (await approval.getByLabel("PIN do supervisor").count())
+    // Successful UI submission clears the PIN itself. Refocusing a closing
+    // Radix modal here would disturb focus restoration in the next dialog.
+    if (!granted && (await approval.getByLabel("PIN do supervisor").count()))
       await approval
         .getByLabel("PIN do supervisor")
         .fill("")
@@ -323,7 +328,12 @@ test("venda em dinheiro, troco, KDS e cancelamento com supervisor", async ({
       .getByRole("button", { name: "Solicitar autorização e registrar" })
       .click();
     await approve(page);
-    await expect(movement).toHaveCount(0);
+    await expect(
+      page.getByRole("dialog", {
+        name: "Movimentação de caixa",
+        includeHidden: true,
+      }),
+    ).toHaveCount(0);
   }
   await page
     .getByRole("button", { name: "Fechamento cego", exact: true })
@@ -357,6 +367,131 @@ test("venda em dinheiro, troco, KDS e cancelamento com supervisor", async ({
   await expect(
     page.getByRole("dialog", { name: "Relatório do turno fechado" }),
   ).toBeVisible();
+});
+
+test("movimentação perdida recupera após reload e turno fechado sem duplicar", async ({
+  page,
+}) => {
+  await login(page);
+  const terminalId = `E2E-RECOVER-${Date.now()}`;
+  expect(
+    (
+      await page.request.post("/api/terminals", {
+        data: {
+          id: terminalId,
+          name: "PDV recuperação Playwright",
+          type: "PDV",
+        },
+      })
+    ).status(),
+  ).toBe(201);
+  const opened = await page.request.post("/api/shifts/open", {
+    data: { terminalId, initialCashCents: 0 },
+  });
+  expect(opened.status()).toBe(201);
+  const shift = await opened.json();
+  await page.evaluate(
+    (id) => localStorage.setItem("central-terminal", id),
+    terminalId,
+  );
+  await page.reload();
+  await page.goto("/#caixa");
+  await page.getByRole("button", { name: /Sangria \/ Suprimento/ }).click();
+  const movement = page.getByRole("dialog", { name: "Movimentação de caixa" });
+  await movement.getByRole("tab", { name: "Suprimento", exact: true }).click();
+  await movement.getByLabel("Valor da movimentação (R$)").fill("10.00");
+  const reason = `Retorno perdido Playwright ${Date.now()}`;
+  await movement.getByLabel("Motivo da movimentação").fill(reason);
+  let committed: CashMovement | undefined;
+  let interrupted = false;
+  const routePattern = "**/api/shifts/*/movements";
+  const handler: Parameters<Page["route"]>[1] = async (route) => {
+    if (route.request().method() !== "POST" || interrupted) {
+      await route.continue();
+      return;
+    }
+    interrupted = true;
+    // The real API commits. Only the response is dropped to reproduce a network loss.
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    committed = (await response.json()) as CashMovement;
+    await route.abort("failed");
+  };
+  await page.route(routePattern, handler);
+  try {
+    await movement
+      .getByRole("button", { name: "Solicitar autorização e registrar" })
+      .click();
+    await approve(page);
+    await expect(
+      movement.getByRole("button", { name: "Reenviar a mesma movimentação" }),
+    ).toBeVisible();
+    expect(committed?.amountCents).toBe(1000);
+    await page.keyboard.press("Escape");
+    const grantResponse = await page.request.post("/api/auth/supervisor", {
+      data: {
+        email,
+        pin: localEnv.BOOTSTRAP_PIN,
+        action: "SHIFT_CLOSED",
+        resourceId: shift.id,
+      },
+    });
+    expect(grantResponse.status()).toBe(200);
+    const grant = await grantResponse.json();
+    const closed = await page.request.post(`/api/shifts/${shift.id}/close`, {
+      data: {
+        declared: { CASH: 1000, CREDIT_CARD: 0, DEBIT_CARD: 0, PIX: 0 },
+        reason: "Fechamento após resposta perdida sintética",
+      },
+      headers: { "x-supervisor-token": grant.token },
+    });
+    expect(closed.status()).toBe(200);
+    await page.reload();
+    await page
+      .getByRole("button", {
+        name: "Conferir movimentação anterior",
+        exact: true,
+      })
+      .click();
+    await expect(movement.getByLabel("Valor da movimentação (R$)")).toHaveValue(
+      "10.00",
+    );
+    await expect(
+      movement.getByLabel("Valor da movimentação (R$)"),
+    ).toBeDisabled();
+    await expect(movement.getByLabel("Motivo da movimentação")).toHaveValue(
+      reason,
+    );
+    await expect(movement.getByLabel("Motivo da movimentação")).toBeDisabled();
+    await movement
+      .getByRole("button", { name: "Reenviar a mesma movimentação" })
+      .click();
+    await approve(page);
+    await expect(
+      page.getByRole("dialog", {
+        name: "Movimentação de caixa",
+        includeHidden: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", {
+        name: "Conferir movimentação anterior",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    const ledger = await (
+      await page.request.get(
+        `/api/shifts/${shift.id}/movements?page=1&pageSize=100`,
+      )
+    ).json();
+    const supplies = ledger.items.filter(
+      (entry: CashMovement) => entry.reason === reason,
+    );
+    expect(supplies).toHaveLength(1);
+    expect(supplies[0].id).toBe(committed?.id);
+  } finally {
+    await page.unroute(routePattern, handler);
+  }
 });
 
 test("cadastro fiscal com tamanho e adicional persiste pela interface", async ({

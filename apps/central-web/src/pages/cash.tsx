@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -10,7 +10,6 @@ import {
   Wallet,
 } from "lucide-react";
 import {
-  uuidV7,
   type CashMovement,
   type PaymentMethod,
   type ShiftReport,
@@ -42,9 +41,16 @@ import { useResource } from "@/hooks/use-resource";
 import { post, errorMessage } from "@/lib/api";
 import { central, type Collection, type CurrentShift } from "@/lib/services";
 import { cents, dateTime, money } from "@/lib/utils";
+import {
+  beginCashMovement,
+  pendingCashMovement,
+  submitCashMovement,
+  type CashMovementIntent,
+} from "@/lib/cash-movement";
 
 export default function CashPage() {
-  const { terminalId, terminals, revision, invalidate, authorize } = useApp();
+  const { user, terminalId, terminals, revision, invalidate, authorize } =
+    useApp();
   const current = useResource<CurrentShift>(
     terminalId
       ? `/shifts/current?terminalId=${encodeURIComponent(terminalId)}`
@@ -69,6 +75,16 @@ export default function CashPage() {
   );
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
+  const [movementReason, setMovementReason] = useState("");
+  const [movementRecovery] = useState(() => {
+    try {
+      return { intent: pendingCashMovement(user.id), error: "" };
+    } catch (cause) {
+      return { intent: null, error: errorMessage(cause) };
+    }
+  });
+  const [movementIntent, setMovementIntent] =
+    useState<CashMovementIntent | null>(movementRecovery.intent);
   const [declared, setDeclared] = useState<Record<PaymentMethod, string>>({
     CASH: "",
     CREDIT_CARD: "",
@@ -80,23 +96,32 @@ export default function CashPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [report, setReport] = useState<ShiftReport | null>(null);
-  const movementKey = useRef(uuidV7());
+  const movementFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (sessionStorage.getItem("central-open-movement")) {
       sessionStorage.removeItem("central-open-movement");
       setMovementOpen(true);
     }
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key === "F8") {
         event.preventDefault();
+        if (
+          busy ||
+          movementOpen ||
+          closeOpen ||
+          openDialog ||
+          movementRecovery.error
+        )
+          return;
+        movementFocus.current = document.activeElement as HTMLElement;
         setMovementOpen(true);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [busy, movementOpen, closeOpen, openDialog, movementRecovery.error]);
   const openShift = async () => {
     setBusy(true);
     setError("");
@@ -112,36 +137,55 @@ export default function CashPage() {
     }
   };
   const move = async () => {
-    if (!shift) return;
-    if (reason.trim().length < 3 || cents(amount) <= 0) {
+    if (movementRecovery.error) {
+      setError(movementRecovery.error);
+      return;
+    }
+    if (!movementIntent && !shift) return;
+    if (
+      !movementIntent &&
+      (movementReason.trim().length < 3 ||
+        !Number.isFinite(cents(amount)) ||
+        cents(amount) <= 0)
+    ) {
       setError("Informe um valor maior que zero e o motivo da movimentação.");
       return;
     }
     setBusy(true);
     setError("");
     try {
-      const token = await authorize(
-        moveType === "SUPPLY" ? "CASH_SUPPLY" : "CASH_BLEED",
-        shift.id,
-      );
-      await post(
-        `/shifts/${shift.id}/movements`,
-        {
-          idempotencyKey: movementKey.current,
+      const intent =
+        movementIntent ??
+        beginCashMovement({
+          actorId: user.id,
+          shiftId: shift!.id,
+          terminalId: shift!.terminalId,
+          terminalName:
+            terminals.find((terminal) => terminal.id === shift!.terminalId)
+              ?.name ?? shift!.terminalId,
           type: moveType,
           amountCents: cents(amount),
-          reason,
-        },
-        token,
-      );
-      movementKey.current = uuidV7();
+          reason: movementReason,
+        });
+      setMovementIntent(intent);
+      await submitCashMovement(intent, authorize);
+      setMovementIntent(pendingCashMovement(user.id));
       setMovementOpen(false);
       setAmount("");
-      setReason("");
+      setMovementReason("");
       invalidate();
-      setMessage("Movimentação registrada e auditada.");
+      setMessage(
+        movementIntent
+          ? "Movimentação anterior conferida sem duplicar lançamento."
+          : "Movimentação registrada e auditada.",
+      );
     } catch (cause) {
       setError(errorMessage(cause));
+      try {
+        setMovementIntent(pendingCashMovement(user.id));
+      } catch (storageCause) {
+        setError(errorMessage(storageCause));
+      }
     } finally {
       setBusy(false);
     }
@@ -197,6 +241,30 @@ export default function CashPage() {
           {message}
         </p>
       )}
+      {movementRecovery.error && (
+        <Notice title="Movimentação local precisa de conferência">
+          {movementRecovery.error}
+        </Notice>
+      )}
+      {movementIntent && (
+        <Notice title="Há uma movimentação aguardando conferência">
+          {movementIntent.terminalName}:{" "}
+          {movementIntent.payload.type === "SUPPLY" ? "suprimento" : "sangria"}{" "}
+          de {money(movementIntent.payload.amountCents)} preservado desde{" "}
+          {dateTime(movementIntent.createdAt)}.{" "}
+          <button
+            className="underline font-semibold"
+            disabled={busy}
+            onClick={(event) => {
+              movementFocus.current = event.currentTarget;
+              setMovementOpen(true);
+            }}
+          >
+            Conferir movimentação anterior
+          </button>
+          . Uma nova movimentação será liberada após esta conferência.
+        </Notice>
+      )}
       <LoadState
         loading={current.loading && !current.data}
         error={current.error}
@@ -236,94 +304,19 @@ export default function CashPage() {
                     declaração e o fechamento do turno.
                   </Notice>
                   <div className="inline-actions">
-                    <Dialog
-                      open={movementOpen}
-                      onOpenChange={(open) => {
-                        if (!busy) {
-                          setMovementOpen(open);
-                          setError("");
-                          setReason("");
-                        }
+                    <Button
+                      variant="outline"
+                      disabled={busy || Boolean(movementRecovery.error)}
+                      onClick={(event) => {
+                        movementFocus.current = event.currentTarget;
+                        if (!movementIntent) setError("");
+                        setMovementOpen(true);
                       }}
                     >
-                      <DialogTrigger asChild>
-                        <Button variant="outline">
-                          <ArrowUpFromLine />
-                          Sangria / Suprimento{" "}
-                          <kbd className="muted text-xs">F8</kbd>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Movimentação de caixa</DialogTitle>
-                          <DialogDescription>
-                            Movimentos exigem motivo e autorização de gerente ou
-                            dono.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <form
-                          className="stack"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void move();
-                          }}
-                        >
-                          <Tabs
-                            value={moveType}
-                            onValueChange={(value) =>
-                              setMoveType(value as typeof moveType)
-                            }
-                          >
-                            <TabsList className="w-full">
-                              <TabsTrigger
-                                value="BLEED_SANGRIA"
-                                className="flex-1 gap-2"
-                              >
-                                <ArrowUpFromLine size={16} />
-                                Sangria
-                              </TabsTrigger>
-                              <TabsTrigger
-                                value="SUPPLY"
-                                className="flex-1 gap-2"
-                              >
-                                <ArrowDownToLine size={16} />
-                                Suprimento
-                              </TabsTrigger>
-                            </TabsList>
-                          </Tabs>
-                          <Field
-                            label="Valor da movimentação (R$)"
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            inputMode="decimal"
-                            required
-                            value={amount}
-                            onChange={(event) => setAmount(event.target.value)}
-                          />
-                          <Field
-                            label="Motivo da movimentação"
-                            help="Descreva a finalidade para a auditoria."
-                          >
-                            <Textarea
-                              minLength={3}
-                              maxLength={500}
-                              required
-                              value={reason}
-                              onChange={(event) =>
-                                setReason(event.target.value)
-                              }
-                            />
-                          </Field>
-                          <FormError error={error} />
-                          <Button type="submit" disabled={busy}>
-                            {busy
-                              ? "Registrando..."
-                              : "Solicitar autorização e registrar"}
-                          </Button>
-                        </form>
-                      </DialogContent>
-                    </Dialog>
+                      <ArrowUpFromLine />
+                      Sangria / Suprimento{" "}
+                      <kbd className="muted text-xs">F8</kbd>
+                    </Button>
                     <Dialog
                       open={closeOpen}
                       onOpenChange={(open) => {
@@ -336,7 +329,13 @@ export default function CashPage() {
                       }}
                     >
                       <DialogTrigger asChild>
-                        <Button>
+                        <Button
+                          disabled={
+                            busy ||
+                            Boolean(movementIntent) ||
+                            Boolean(movementRecovery.error)
+                          }
+                        >
                           <LockKeyhole />
                           Fechamento cego
                         </Button>
@@ -640,6 +639,107 @@ export default function CashPage() {
             </div>
           ))}
       </section>
+      <Dialog
+        open={movementOpen}
+        onOpenChange={(open) => {
+          if (!busy) {
+            setMovementOpen(open);
+            if (!movementIntent) setError("");
+          }
+        }}
+      >
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            movementFocus.current?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Movimentação de caixa</DialogTitle>
+            <DialogDescription>
+              Movimentos exigem motivo e autorização de gerente ou dono.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void move();
+            }}
+          >
+            {movementIntent && (
+              <Notice title="Movimentação preservada">
+                {movementIntent.terminalName} ·{" "}
+                {movementIntent.payload.type === "SUPPLY"
+                  ? "Suprimento"
+                  : "Sangria"}{" "}
+                de {money(movementIntent.payload.amountCents)}. A chave e os
+                dados originais serão reenviados, inclusive se o turno já
+                estiver fechado.
+              </Notice>
+            )}
+            <fieldset
+              className="stack"
+              disabled={
+                busy ||
+                Boolean(movementIntent) ||
+                Boolean(movementRecovery.error)
+              }
+            >
+              <Tabs
+                value={movementIntent?.payload.type ?? moveType}
+                onValueChange={(value) => setMoveType(value as typeof moveType)}
+              >
+                <TabsList className="w-full">
+                  <TabsTrigger value="BLEED_SANGRIA" className="flex-1 gap-2">
+                    <ArrowUpFromLine size={16} />
+                    Sangria
+                  </TabsTrigger>
+                  <TabsTrigger value="SUPPLY" className="flex-1 gap-2">
+                    <ArrowDownToLine size={16} />
+                    Suprimento
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Field
+                label="Valor da movimentação (R$)"
+                type="number"
+                step="0.01"
+                min="0.01"
+                inputMode="decimal"
+                required
+                value={
+                  movementIntent
+                    ? (movementIntent.payload.amountCents / 100).toFixed(2)
+                    : amount
+                }
+                onChange={(event) => setAmount(event.target.value)}
+              />
+              <Field
+                label="Motivo da movimentação"
+                help="Descreva a finalidade para a auditoria."
+              >
+                <Textarea
+                  minLength={3}
+                  maxLength={500}
+                  required
+                  value={movementIntent?.payload.reason ?? movementReason}
+                  onChange={(event) => setMovementReason(event.target.value)}
+                />
+              </Field>
+            </fieldset>
+            <FormError error={error || movementRecovery.error} />
+            <Button type="submit" disabled={busy}>
+              {busy
+                ? "Registrando..."
+                : movementIntent
+                  ? "Reenviar a mesma movimentação"
+                  : "Solicitar autorização e registrar"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={Boolean(report)}
         onOpenChange={(open) => {
